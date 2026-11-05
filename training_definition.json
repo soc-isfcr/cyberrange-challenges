@@ -1,0 +1,195 @@
+{
+  "title": "Ransomware Incident Investigation & SOC Response",
+  "description": "Investigate a high-severity ransomware incident on an enterprise Windows endpoint using Wazuh SOC alerts, Sysmon process telemetry, network packet captures, and file forensics.",
+  "prerequisites": [
+    "Understanding of Windows process creation and hierarchy (Sysmon / Security 4688)",
+    "Familiarity with network protocols and Wireshark / tshark PCAP inspection",
+    "Basic knowledge of Wazuh alert structures and MITRE ATT&CK framework"
+  ],
+  "outcomes": [
+    "Identify anomalous initial execution vectors on Windows workstations",
+    "Trace parent-child process chains associated with defense impairment (vssadmin)",
+    "Analyze command-and-control (C2) network traffic and extract session indicators",
+    "Correlate endpoint file alterations with Wazuh detection rules",
+    "Formulate and execute appropriate incident containment strategies"
+  ],
+  "estimated_duration_minutes": 60,
+  "levels": [
+    {
+      "order": 1,
+      "title": "Incident Briefing & Rules of Engagement",
+      "type": "info",
+      "description": "You are a Tier-2 SOC Analyst on duty. The Wazuh SIEM has flagged abnormal endpoint and network events originating from an internal finance workstation. Your task is to investigate the collected forensic evidence package (INC-2026-9842) located in your lab directory, answer the assessment checkpoints, and formulate containment actions."
+    },
+    {
+      "order": 2,
+      "title": "Q1: Affected Workstation Identification",
+      "type": "training",
+      "description": "Examine the collected endpoint telemetry or incident summary. What is the NetBIOS / DNS hostname of the affected Windows endpoint?",
+      "answer": "DESKTOP-WKSTN42",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "Hostname Source",
+          "content": "Check the Computer or Hostname field in endpoint/process_events.jsonl or incident.json.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "Inspection of endpoint/process_events.jsonl or incident.json shows the affected computer is DESKTOP-WKSTN42."
+    },
+    {
+      "order": 3,
+      "title": "Q2: Initiating Suspicious Process",
+      "type": "training",
+      "description": "Which process executable name initiated the suspicious attack chain from the user's directory?",
+      "answer": "invoice_review.exe",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "Process Identification",
+          "content": "Look for untrusted binaries executed out of user profile paths (such as Downloads or Temp) in process_events.jsonl.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "Sysmon Event ID 1 shows invoice_review.exe launched from C:\\Users\\j.doe\\Downloads\\."
+    },
+    {
+      "order": 4,
+      "title": "Q3: Parent Process Attribution",
+      "type": "training",
+      "description": "What was the parent process name (executable name) that spawned the suspicious executable?",
+      "answer": "explorer.exe",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "Parent Image",
+          "content": "Check the ParentImage field in the process creation event for invoice_review.exe.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "The ParentImage field in Sysmon Event 1 shows C:\\Windows\\explorer.exe (PID 2840), indicating user GUI launch."
+    },
+    {
+      "order": 5,
+      "title": "Q4: Initial Timestamp",
+      "type": "training",
+      "description": "At what exact UTC timestamp (YYYY-MM-DDTHH:MM:SS) did the first suspicious process execution event occur?",
+      "answer": "2026-11-06T09:14:22",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "Timestamp format",
+          "content": "Extract the UtcTime field from the initial process event in process_events.jsonl up to seconds precision.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "Sysmon Event 1 for invoice_review.exe has UtcTime 2026-11-06T09:14:22.105Z."
+    },
+    {
+      "order": 6,
+      "title": "Q5: Modified File Extension",
+      "type": "training",
+      "description": "What file extension was appended to the canary finance documents during the encryption phase?",
+      "answer": ".locked",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "File Extension",
+          "content": "Inspect endpoint/file_activity.jsonl or forensic/file_hashes.json for TargetFilename values.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "file_activity.jsonl shows all 5 canary files renamed with the .locked extension."
+    },
+    {
+      "order": 7,
+      "title": "Q6: Command and Control (C2) Endpoint",
+      "type": "training",
+      "description": "What was the destination IP address and port (format IP:PORT) of the external server involved in the simulated C2 communication?",
+      "answer": "10.10.50.30:8080",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "Network PCAP Inspection",
+          "content": "Inspect network/network_capture.pcap with tshark or Wireshark, or examine c2_conversations.json.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "PCAP analysis shows HTTP sessions directed to 10.10.50.30 on destination port 8080."
+    },
+    {
+      "order": 8,
+      "title": "Q7: Wazuh Shadow Copy Alert Rule ID",
+      "type": "training",
+      "description": "What is the numeric Wazuh Rule ID triggered by the defense impairment command (vssadmin delete shadows)?",
+      "answer": "100202",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "Wazuh Alert Search",
+          "content": "Filter wazuh/wazuh_alerts.json for rule descriptions matching vssadmin or shadow copy.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "Wazuh alert rule 100202 corresponds to Volume shadow copy deletion attempted via vssadmin."
+    },
+    {
+      "order": 9,
+      "title": "Q8: Ransom Note Filename",
+      "type": "training",
+      "description": "What is the filename of the extortion note dropped into the victim's directory?",
+      "answer": "RESTORE_FILES_INFO.txt",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "Note Identification",
+          "content": "Check forensic/indicators.json or endpoint/file_activity.jsonl for newly created text files.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "RESTORE_FILES_INFO.txt was created in the FinanceReports directory."
+    },
+    {
+      "order": 10,
+      "title": "Q9: MITRE ATT&CK Defense Impairment Technique",
+      "type": "training",
+      "description": "Which MITRE ATT&CK technique ID corresponds to the shadow copy deletion (Inhibit System Recovery)?",
+      "answer": "T1490",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "MITRE ATT&CK ID",
+          "content": "Review the mitre block in Wazuh alert 100202 or the incident timeline.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "T1490 is Inhibit System Recovery (Volume Shadow Copy Deletion)."
+    },
+    {
+      "order": 11,
+      "title": "Q10: Primary SOC Containment Action",
+      "type": "training",
+      "description": "According to SOC incident response standards, what immediate containment action must be executed first for the affected workstation?",
+      "answer": "isolate",
+      "max_score": 10,
+      "hints": [
+        {
+          "order": 1,
+          "title": "Containment Priority",
+          "content": "Consider network segmentation and halting C2 beaconing / lateral movement.",
+          "score_penalty": 2
+        }
+      ],
+      "solution": "Network isolation of the affected endpoint is the critical first containment measure."
+    }
+  ]
+}

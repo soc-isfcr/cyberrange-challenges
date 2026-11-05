@@ -1,0 +1,63 @@
+name: malware-challenge
+hosts:
+  - name: wazuh
+    base_box:
+      image: ubuntu-noble-x86_64
+      mgmt_user: ubuntu
+      mgmt_protocol: SSH
+    flavor: wazuh.server50
+
+  - name: analyst
+    base_box:
+      image: kali
+      mgmt_user: debian
+      mgmt_protocol: SSH
+    flavor: analyst.kali30
+
+  - name: mockc2
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+      mgmt_protocol: SSH
+    flavor: standard.tiny
+
+  - name: target
+    base_box:
+      image: windows-10-x86_64
+      mgmt_user: Administrator
+      mgmt_protocol: WINRM
+    flavor: windows.workstation40
+
+routers:
+  - name: router1
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+      mgmt_protocol: SSH
+    flavor: standard.tiny
+
+networks:
+  - name: lab-network
+    cidr: 10.10.50.0/24
+    accessible_by_user: true
+
+net_mappings:
+  - host: wazuh
+    network: lab-network
+    ip: 10.10.50.10
+  - host: analyst
+    network: lab-network
+    ip: 10.10.50.20
+  - host: mockc2
+    network: lab-network
+    ip: 10.10.50.30
+  - host: target
+    network: lab-network
+    ip: 10.10.50.42
+
+router_mappings:
+  - router: router1
+    network: lab-network
+    ip: 10.10.50.2
+
+groups: []

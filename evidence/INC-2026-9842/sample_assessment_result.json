@@ -1,0 +1,101 @@
+{
+  "incident_id": "INC-2026-9842",
+  "evidence_version": "1.0.0",
+  "evaluated_at_utc": "2026-11-05T19:13:32.655583+00:00",
+  "total_score": 100,
+  "max_score": 100,
+  "percentage": 100.0,
+  "passed": true,
+  "breakdown": {
+    "Q1": {
+      "title": "Affected Workstation",
+      "submitted_answer": "DESKTOP-WKSTN42",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "endpoint/process_events.jsonl & incident.json"
+    },
+    "Q2": {
+      "title": "Initiating Process",
+      "submitted_answer": "invoice_review.exe",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "endpoint/process_events.jsonl (PID 4912)"
+    },
+    "Q3": {
+      "title": "Parent Process",
+      "submitted_answer": "explorer.exe",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "endpoint/process_events.jsonl (ParentProcessId 2840)"
+    },
+    "Q4": {
+      "title": "Initial Suspicious Timestamp",
+      "submitted_answer": "2026-11-06T09:14:22Z",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "endpoint/process_events.jsonl (UtcTime)"
+    },
+    "Q5": {
+      "title": "Modified File Extension",
+      "submitted_answer": ".locked",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "endpoint/file_activity.jsonl"
+    },
+    "Q6": {
+      "title": "C2 Destination IP and Port",
+      "submitted_answer": "10.10.50.30:8080",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "network/network_capture.pcap & c2_conversations.json"
+    },
+    "Q7": {
+      "title": "Wazuh Alert Rule ID",
+      "submitted_answer": "100202",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "wazuh/wazuh_alerts.json"
+    },
+    "Q8": {
+      "title": "Ransom Note Filename",
+      "submitted_answer": "RESTORE_FILES_INFO.txt",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "forensic/indicators.json & endpoint/file_activity.jsonl"
+    },
+    "Q9": {
+      "title": "ATT&CK Defense Impairment Technique",
+      "submitted_answer": "T1490",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "wazuh/wazuh_alerts.json (Inhibit System Recovery)"
+    },
+    "Q10": {
+      "title": "Primary SOC Containment Action",
+      "submitted_answer": "Isolate the infected workstation from the network immediately",
+      "is_correct": true,
+      "score_awarded": 10,
+      "max_score": 10,
+      "hint_penalty": 0,
+      "evidence_ref": "Incident Response Standard Playbook"
+    }
+  }
+}

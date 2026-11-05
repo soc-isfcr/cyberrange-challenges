@@ -1,0 +1,32 @@
+# CyberRangeCZ Sandbox Variables
+scenario_id: "soc-ransomware-investigation"
+incident_id: "INC-2026-9842"
+
+# Network Configuration
+lab_network_cidr: "10.10.50.0/24"
+wazuh_ip: "10.10.50.10"
+analyst_ip: "10.10.50.20"
+mockc2_ip: "10.10.50.30"
+mockc2_port: 8080
+target_ip: "10.10.50.42"
+router_ip: "10.10.50.2"
+
+# VM Images
+wazuh_image: "ubuntu-noble-x86_64"
+analyst_image: "kali"
+mockc2_image: "debian-12-x86_64"
+target_windows_image: "windows-10-x86_64"
+router_image: "debian-12-x86_64"
+
+# Hardware Flavors
+wazuh_flavor: "wazuh.server50"
+analyst_flavor: "analyst.kali30"
+mockc2_flavor: "standard.tiny"
+target_flavor: "windows.workstation40"
+router_flavor: "standard.tiny"
+
+# Simulation Parameters
+target_hostname: "DESKTOP-WKSTN42"
+victim_user: "j.doe"
+decoy_directory: "C:\\Users\\j.doe\\Documents\\FinanceReports"
+reversible_key: "LAB_REVERSIBLE_SIMULATION_KEY_2026!"

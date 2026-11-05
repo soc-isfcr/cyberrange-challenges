@@ -1,0 +1,114 @@
+{
+  "incident_id": "INC-2026-9842",
+  "scenario_id": "soc-ransomware-investigation",
+  "scenario_version": "1.0.0",
+  "evidence_schema_version": "2.0.0",
+  "target_hostname": "DESKTOP-WKSTN42",
+  "target_os": "Windows 10 Pro (Build 19045)",
+  "collection_start_utc": "2026-11-06T09:14:00.000Z",
+  "collection_end_utc": "2026-11-06T09:16:00.000Z",
+  "data_classification": {
+    "observed_facts": [
+      "Sysmon Event ID 1: invoice_review.exe launched with PID 4912 from Downloads directory",
+      "Sysmon Event ID 1: vssadmin.exe delete shadows executed with PID 5288",
+      "Network Capture: Outbound HTTP POST to 10.10.50.30:8080 with X-Victim-ID header",
+      "Sysmon Event ID 11: 5 canary files renamed with .locked extension and RESTORE_FILES_INFO.txt created",
+      "Wazuh Alert Logs: Detections triggered on Rules 100201, 100202, 100203, 100204"
+    ],
+    "derived_findings": [
+      "Initial execution vector is untrusted executable execution from user Downloads folder",
+      "Adversary impaired backup recovery capability prior to file modification",
+      "Adversary established external C2 channel for cryptographic key exchange",
+      "High confidence ransomware-like extortion behavior identified"
+    ],
+    "analyst_interpretations": [
+      "Simulation represents an intermediate-stage ransomware intrusion (LockBit / Conti style progression)",
+      "Decoy directory contained canary finance data; no lateral movement occurred outside target"
+    ],
+    "expected_containment": [
+      "Immediate network isolation of DESKTOP-WKSTN42",
+      "Termination of invoice_review.exe process tree",
+      "Decoy file restoration from safe backup key"
+    ]
+  },
+  "artifacts": {
+    "incident.json": {
+      "path": "incident.json",
+      "size_bytes": 1032,
+      "sha256": "fa29cb41e1c37546f8bb22f5a703b2840ca4ff66e245a5c07525097148853488",
+      "category": "root"
+    },
+    "incident_timeline.json": {
+      "path": "incident_timeline.json",
+      "size_bytes": 2588,
+      "sha256": "f9669323341a7e25bee91478c539c6ced7f6c7a5194367ceecdf14537448ea83",
+      "category": "root"
+    },
+    "sample_assessment_result.json": {
+      "path": "sample_assessment_result.json",
+      "size_bytes": 3103,
+      "sha256": "810480e70a19e7f7d6f3efd6fb0b2b39c6426540fd7728a4e24a60fa5f199fab",
+      "category": "root"
+    },
+    "endpoint/file_activity.jsonl": {
+      "path": "endpoint/file_activity.jsonl",
+      "size_bytes": 4565,
+      "sha256": "717f1142714a86b75c7e3d6198cfa4106b3faf68d8068893b180b765f7dc62b2",
+      "category": "endpoint"
+    },
+    "endpoint/process_events.jsonl": {
+      "path": "endpoint/process_events.jsonl",
+      "size_bytes": 2865,
+      "sha256": "fe8b960199237977c64a3f5adb546c6aa797cb7e322b8416f33507fa9ed7f879",
+      "category": "endpoint"
+    },
+    "endpoint/sysmon_events.jsonl": {
+      "path": "endpoint/sysmon_events.jsonl",
+      "size_bytes": 8522,
+      "sha256": "1111d011d585efb14148322421f75c97a17156b7914807bfe7443fa4c2cb9c83",
+      "category": "endpoint"
+    },
+    "endpoint/system_events.evtx": {
+      "path": "endpoint/system_events.evtx",
+      "size_bytes": 4096,
+      "sha256": "fb869de5d74b995a048d930f98a27436a7d30f83fad2194cb9d5ef41cba53531",
+      "category": "endpoint"
+    },
+    "forensic/file_hashes.json": {
+      "path": "forensic/file_hashes.json",
+      "size_bytes": 4086,
+      "sha256": "f791afe6833d1a482c047bddff2b67b4265b84f2077338818e19a25e47cb0635",
+      "category": "forensic"
+    },
+    "forensic/indicators.json": {
+      "path": "forensic/indicators.json",
+      "size_bytes": 876,
+      "sha256": "305a0e1da044c7ec05c82332b40006d72d1d3432323a105b81d13ddda13f2860",
+      "category": "forensic"
+    },
+    "metadata/collection_metadata.json": {
+      "path": "metadata/collection_metadata.json",
+      "size_bytes": 486,
+      "sha256": "57be044c509672b1f697d9b7188ace0a5bafd78e0ddb17850e90348c6483a721",
+      "category": "metadata"
+    },
+    "network/c2_conversations.json": {
+      "path": "network/c2_conversations.json",
+      "size_bytes": 885,
+      "sha256": "431ac14e8ca8efae811056ff2691d65ad262fddbd547331b954e84ca4c4f09ac",
+      "category": "network"
+    },
+    "network/network_capture.pcap": {
+      "path": "network/network_capture.pcap",
+      "size_bytes": 1686,
+      "sha256": "ec80eb0ef6b33cfc66f14423e30e99686e1e6758972fa2bf4ef8f439babdc8fd",
+      "category": "network"
+    },
+    "wazuh/wazuh_alerts.json": {
+      "path": "wazuh/wazuh_alerts.json",
+      "size_bytes": 3243,
+      "sha256": "b3fb4d16dbd72de2f794c1ebe1b09b4bf4ac850ea0b795a61b5d56385c2c80f3",
+      "category": "wazuh"
+    }
+  }
+}

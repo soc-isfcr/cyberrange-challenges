@@ -1,0 +1,223 @@
+---
+# ==============================================================================
+# CyberRangeCZ Provisioning Playbook: Malware Challenge
+# Configures: Wazuh Manager, Kali Analyst, Mock C2, and Windows Target
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Wazuh SOC Manager Configuration
+# ------------------------------------------------------------------------------
+- name: Provision Wazuh SOC Manager with Ransomware Detection Rules
+  hosts: wazuh
+  become: true
+  vars:
+    lab_dir: /opt/lab
+    wazuh_rules_dir: /var/ossec/etc/rules
+    wazuh_alerts_file: /var/ossec/logs/alerts/alerts.json
+    lab_alerts_file: /opt/lab/alerts.json
+
+  tasks:
+    - name: Ensure prerequisite packages are installed
+      apt:
+        name:
+          - curl
+          - jq
+          - python3
+          - python3-yaml
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure lab directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ lab_dir }}"
+        - "{{ lab_dir }}/rules"
+
+    - name: Deploy custom ransomware detection rules
+      copy:
+        dest: "{{ wazuh_rules_dir }}/ransomware_rules.xml"
+        owner: root
+        group: wazuh
+        mode: "0640"
+        content: |
+          <!-- CyberRangeCZ Custom Ransomware Rules -->
+          <group name="windows,ransomware_simulation,">
+            <rule id="100201" level="10">
+              <if_group>windows</if_group>
+              <field name="win.eventdata.image">\\Downloads\\.*\.exe$</field>
+              <description>Ransomware Emulation: Executable launched directly from user Downloads folder</description>
+              <mitre><id>T1204.002</id></mitre>
+            </rule>
+            <rule id="100202" level="12">
+              <if_group>windows</if_group>
+              <field name="win.eventdata.image">vssadmin\.exe</field>
+              <match>delete shadows</match>
+              <description>Ransomware Emulation: Volume shadow copy deletion attempted via vssadmin</description>
+              <mitre><id>T1490</id></mitre>
+            </rule>
+            <rule id="100203" level="14">
+              <if_group>windows</if_group>
+              <field name="win.eventdata.targetFilename">(\.locked$|RESTORE_FILES_INFO\.txt$)</field>
+              <description>Ransomware Emulation: Canary file extension alteration (.locked) or ransom note creation</description>
+              <mitre><id>T1486</id></mitre>
+            </rule>
+            <rule id="100204" level="9">
+              <if_group>windows</if_group>
+              <field name="win.eventdata.destinationPort">^8080$</field>
+              <field name="win.eventdata.image">invoice_review\.exe$</field>
+              <description>Ransomware Emulation: Suspicious outbound network connection to external C2 port</description>
+              <mitre><id>T1071.001</id><id>T1573.001</id></mitre>
+            </rule>
+          </group>
+      notify: Restart Wazuh manager
+
+    - name: Ensure alert export cron job is configured
+      cron:
+        name: publish-ransomware-alerts
+        user: root
+        job: >-
+          if [ -f {{ wazuh_alerts_file }} ]; then
+            /usr/bin/install -o root -g wazuh -m 0644 {{ wazuh_alerts_file }} {{ lab_alerts_file }};
+          fi
+
+  handlers:
+    - name: Restart Wazuh manager
+      service:
+        name: wazuh-manager
+        state: restarted
+      ignore_errors: true
+
+# ------------------------------------------------------------------------------
+# 2. Mock C2 Server Provisioning
+# ------------------------------------------------------------------------------
+- name: Provision Controlled Mock C2 Service
+  hosts: mockc2
+  become: true
+  vars:
+    c2_dir: /opt/mockc2
+
+  tasks:
+    - name: Install Python 3
+      apt:
+        name: python3
+        state: present
+        update_cache: true
+
+    - name: Create C2 directory
+      file:
+        path: "{{ c2_dir }}"
+        state: directory
+        owner: root
+        mode: "0755"
+
+    - name: Deploy Mock C2 Server script
+      copy:
+        src: ../simulation/mock_c2_server.py
+        dest: "{{ c2_dir }}/mock_c2_server.py"
+        mode: "0755"
+
+    - name: Create Mock C2 systemd service
+      copy:
+        dest: /etc/systemd/system/mockc2.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Controlled Mock C2 Training Service
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory={{ c2_dir }}
+          ExecStart=/usr/bin/python3 {{ c2_dir }}/mock_c2_server.py 8080
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start Mock C2 service
+      systemd:
+        name: mockc2
+        state: started
+        enabled: true
+        daemon_reload: true
+
+# ------------------------------------------------------------------------------
+# 3. Kali Analyst Workstation Provisioning
+# ------------------------------------------------------------------------------
+- name: Provision Kali Analyst Workstation
+  hosts: analyst
+  become: true
+  vars:
+    lab_user: "{{ ansible_user | default('debian') }}"
+    lab_dir: "/home/{{ ansible_user | default('debian') }}/lab"
+
+  tasks:
+    - name: Preseed Wireshark debconf
+      debconf:
+        name: wireshark-common
+        question: wireshark-common/install-setuid
+        vtype: boolean
+        value: "false"
+
+    - name: Install forensic analysis tools
+      apt:
+        name:
+          - wireshark
+          - tshark
+          - tcpdump
+          - python3
+          - python3-pip
+          - jq
+          - curl
+        state: present
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Create analyst lab workspace
+      file:
+        path: "{{ lab_dir }}"
+        state: directory
+        owner: "{{ lab_user }}"
+        group: "{{ lab_user }}"
+        mode: "0755"
+
+    - name: Create evidence directory structure
+      file:
+        path: "{{ lab_dir }}/evidence"
+        state: directory
+        owner: "{{ lab_user }}"
+        group: "{{ lab_user }}"
+        mode: "0755"
+
+# ------------------------------------------------------------------------------
+# 4. Windows Target Provisioning (Gated / Configurable)
+# ------------------------------------------------------------------------------
+- name: Provision Windows 10 Target Machine
+  hosts: target
+  gather_facts: false
+  tasks:
+    - name: Test WinRM connectivity
+      win_ping:
+      ignore_errors: true
+      register: win_status
+
+    - name: Setup Decoy Documents Directory
+      win_file:
+        path: "C:\\Users\\j.doe\\Documents\\FinanceReports"
+        state: directory
+      when: win_status is success
+
+    - name: Setup Simulation Staging Directory
+      win_file:
+        path: "C:\\Users\\j.doe\\Downloads"
+        state: directory
+      when: win_status is success

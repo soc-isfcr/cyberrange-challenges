@@ -1,0 +1,16 @@
+{
+  "collection_id": "COL-INC-2026-9842",
+  "collector_name": "CyberRangeCZ-TelemetryCollector",
+  "collector_version": "2.4.0",
+  "collection_start_utc": "2026-11-06T09:14:00.000Z",
+  "collection_end_utc": "2026-11-06T09:16:00.000Z",
+  "target_system": {
+    "hostname": "DESKTOP-WKSTN42",
+    "os": "Windows 10 Pro x64",
+    "ip": "10.10.50.42",
+    "agent_id": "002"
+  },
+  "artifacts_collected_count": 10,
+  "collection_status": "SUCCESS",
+  "missing_artifacts": []
+}

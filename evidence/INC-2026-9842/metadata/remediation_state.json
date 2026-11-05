@@ -1,0 +1,35 @@
+{
+  "endpoint_isolated": true,
+  "processes_terminated": true,
+  "mock_c2_disabled": true,
+  "files_restored": true,
+  "containment_verified": true,
+  "last_action_timestamp": "2026-11-05T19:17:15.254011+00:00",
+  "action_history": [
+    {
+      "action_id": "ISOLATE_HOST",
+      "timestamp": "2026-11-05T19:17:15.244121+00:00",
+      "status": "SUCCESS"
+    },
+    {
+      "action_id": "TERMINATE_MALWARE_TREE",
+      "timestamp": "2026-11-05T19:17:15.246702+00:00",
+      "status": "SUCCESS"
+    },
+    {
+      "action_id": "DISABLE_MOCK_C2",
+      "timestamp": "2026-11-05T19:17:15.249035+00:00",
+      "status": "SUCCESS"
+    },
+    {
+      "action_id": "RESTORE_DECOY_FILES",
+      "timestamp": "2026-11-05T19:17:15.251492+00:00",
+      "status": "SUCCESS"
+    },
+    {
+      "action_id": "RESCAN_ENVIRONMENT",
+      "timestamp": "2026-11-05T19:17:15.254011+00:00",
+      "status": "SUCCESS"
+    }
+  ]
+}

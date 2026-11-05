@@ -1,0 +1,50 @@
+<!--
+  Wazuh Detection Rules for Ransomware Incident Simulation
+  Mapped to MITRE ATT&CK: T1204.002, T1490, T1071.001, T1486
+-->
+<group name="windows,ransomware_simulation,">
+
+  <!-- Rule 100201: Initial Execution from User Downloads -->
+  <rule id="100201" level="10">
+    <if_group>windows</if_group>
+    <field name="win.eventdata.image">\\Downloads\\.*\.exe$</field>
+    <description>Ransomware Emulation: Executable launched directly from user Downloads folder</description>
+    <mitre>
+      <id>T1204.002</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100202: Defense Impairment - Shadow Copy Deletion -->
+  <rule id="100202" level="12">
+    <if_group>windows</if_group>
+    <field name="win.eventdata.image">vssadmin\.exe</field>
+    <match>delete shadows</match>
+    <description>Ransomware Emulation: Volume shadow copy deletion attempted via vssadmin</description>
+    <mitre>
+      <id>T1490</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100203: File Encryption & Ransom Note Impact -->
+  <rule id="100203" level="14">
+    <if_group>windows</if_group>
+    <field name="win.eventdata.targetFilename">(\.locked$|RESTORE_FILES_INFO\.txt$)</field>
+    <description>Ransomware Emulation: Canary file extension alteration (.locked) or ransom note creation</description>
+    <mitre>
+      <id>T1486</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100204: Suspicious Outbound C2 Connection -->
+  <rule id="100204" level="9">
+    <if_group>windows</if_group>
+    <field name="win.eventdata.destinationPort">^8080$</field>
+    <field name="win.eventdata.image">invoice_review\.exe$</field>
+    <description>Ransomware Emulation: Suspicious outbound network connection to external C2 port</description>
+    <mitre>
+      <id>T1071.001</id>
+      <id>T1573.001</id>
+    </mitre>
+  </rule>
+
+</group>

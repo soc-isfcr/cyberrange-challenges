@@ -1,0 +1,38 @@
+{
+  "incident_id": "INC-2026-9842",
+  "ip_addresses": [
+    {
+      "ip": "10.10.50.42",
+      "role": "Affected Workstation",
+      "hostname": "DESKTOP-WKSTN42"
+    },
+    {
+      "ip": "10.10.50.30",
+      "role": "Command and Control Server",
+      "port": 8080,
+      "proto": "HTTP/TCP"
+    }
+  ],
+  "file_hashes": [
+    {
+      "filename": "invoice_review.exe",
+      "path": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+      "sha256": "d4f5e71c890ab234cde567890f1234567890abcdef1234567890abcdef123456",
+      "type": "Malware Executable / Dropper"
+    }
+  ],
+  "uri_paths": [
+    "/api/v1/session/negotiate",
+    "/api/v1/beacon",
+    "/recover"
+  ],
+  "user_agents": [
+    "WinCryptoSync/2.1 (Workstation; x64)"
+  ],
+  "ransom_notes": [
+    "RESTORE_FILES_INFO.txt"
+  ],
+  "encrypted_file_extensions": [
+    ".locked"
+  ]
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "original_filename": "Q3_Financial_Audit.xlsx",
+    "original_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Q3_Financial_Audit.xlsx",
+    "original_sha256": "f5c8dd6e98b701549653fa8560504664d1393f8f46f3a87f4eddefd98fcdb87d",
+    "original_size_bytes": 18432,
+    "encrypted_filename": "Q3_Financial_Audit.xlsx.locked",
+    "encrypted_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Q3_Financial_Audit.xlsx.locked",
+    "encrypted_sha256": "47906fa38a57e5885a1f4bb077291fadb5e37eb54382c067d1f484a3c0d60bf0",
+    "encrypted_size_bytes": 18432,
+    "encryption_algorithm": "AES256-GCM / XOR-Reversible-Emulation",
+    "modified_timestamp": "2026-11-06T09:15:48.820Z"
+  },
+  {
+    "original_filename": "Client_Contracts_2026.docx",
+    "original_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Client_Contracts_2026.docx",
+    "original_sha256": "e4b173015529227ba2fd2e6af492d67c5f863604ec45b4ac96944c4a6a7fd403",
+    "original_size_bytes": 24576,
+    "encrypted_filename": "Client_Contracts_2026.docx.locked",
+    "encrypted_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Client_Contracts_2026.docx.locked",
+    "encrypted_sha256": "7fc7ee3e26405eab3c371d1e6933b36bd68d10073d8a6522ec9a249aba689e63",
+    "encrypted_size_bytes": 24576,
+    "encryption_algorithm": "AES256-GCM / XOR-Reversible-Emulation",
+    "modified_timestamp": "2026-11-06T09:15:48.820Z"
+  },
+  {
+    "original_filename": "Employee_Payroll_Summary.pdf",
+    "original_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Employee_Payroll_Summary.pdf",
+    "original_sha256": "236db9eda1ffad8d7c49c131c847dd21a61c82db54faba63ed1ab871c6af8de7",
+    "original_size_bytes": 32768,
+    "encrypted_filename": "Employee_Payroll_Summary.pdf.locked",
+    "encrypted_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Employee_Payroll_Summary.pdf.locked",
+    "encrypted_sha256": "9fdd60dbea8e4981d74e069a08d9c9af12490131a14626bf19d176631cecdbbb",
+    "encrypted_size_bytes": 32768,
+    "encryption_algorithm": "AES256-GCM / XOR-Reversible-Emulation",
+    "modified_timestamp": "2026-11-06T09:15:48.820Z"
+  },
+  {
+    "original_filename": "Tax_Declaration_Draft.csv",
+    "original_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Tax_Declaration_Draft.csv",
+    "original_sha256": "4c735cde9504ed092873ea86b7ae17a71fbbac87e19d4b9495d18786ac126ca2",
+    "original_size_bytes": 8192,
+    "encrypted_filename": "Tax_Declaration_Draft.csv.locked",
+    "encrypted_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Tax_Declaration_Draft.csv.locked",
+    "encrypted_sha256": "76ddbbcc8ce80ed18678b954d0356e379f4b8a29b136d94debe7183e1f8522ea",
+    "encrypted_size_bytes": 8192,
+    "encryption_algorithm": "AES256-GCM / XOR-Reversible-Emulation",
+    "modified_timestamp": "2026-11-06T09:15:48.820Z"
+  },
+  {
+    "original_filename": "Customer_Database_Export.sql",
+    "original_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Customer_Database_Export.sql",
+    "original_sha256": "a0a1eb3eb3e184fa308c365d393e613afac8a62d39b782f6f4a2a074ff1ea3a1",
+    "original_size_bytes": 45056,
+    "encrypted_filename": "Customer_Database_Export.sql.locked",
+    "encrypted_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\Customer_Database_Export.sql.locked",
+    "encrypted_sha256": "baa6b34b25b8a5d79fcf3f917acea88005e1fd91e77cb9a02646df5ae9c5990f",
+    "encrypted_size_bytes": 45056,
+    "encryption_algorithm": "AES256-GCM / XOR-Reversible-Emulation",
+    "modified_timestamp": "2026-11-06T09:15:48.820Z"
+  },
+  {
+    "original_filename": null,
+    "original_path": null,
+    "original_sha256": null,
+    "original_size_bytes": null,
+    "encrypted_filename": "RESTORE_FILES_INFO.txt",
+    "encrypted_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\RESTORE_FILES_INFO.txt",
+    "encrypted_sha256": "d64e20e8e0991167114775e1c36b912ad1f8417d370e000f258bb882c3c0cfae",
+    "encrypted_size_bytes": 628,
+    "encryption_algorithm": "Plaintext Extortion Note",
+    "modified_timestamp": "2026-11-06T09:15:48.950Z"
+  }
+]

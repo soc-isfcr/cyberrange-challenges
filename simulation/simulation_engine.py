@@ -1,0 +1,1009 @@
+#!/usr/bin/env python3
+"""
+SOC CyberRange Simulation & Evidence Generation Engine.
+Generates genuine, bit-for-bit reproducible evidence packages adhering to
+the Master Prompt Data Contract (Section 7).
+
+Includes:
+- Binary PCAP generator with standard Ethernet framing, TCP handshakes, and HTTP payloads
+- Sysmon process ancestry records (Event ID 1)
+- Sysmon network connection records (Event ID 3)
+- Sysmon file creation/modification records (Event ID 11)
+- Wazuh alert records matching Wazuh Manager alert JSON schema
+- Chronological Incident Timeline
+- SHA-256 manifest and artifact checksum verification
+"""
+
+import os
+import sys
+import json
+import time
+import struct
+import socket
+import hashlib
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+INCIDENT_ID = "INC-2026-9842"
+SCENARIO_ID = "soc-ransomware-investigation"
+SCENARIO_VERSION = "1.0.0"
+SCHEMA_VERSION = "2.0.0"
+TARGET_HOST = "DESKTOP-WKSTN42"
+TARGET_IP = "10.10.50.42"
+VICTIM_USER = "j.doe"
+C2_IP = "10.10.50.30"
+C2_PORT = 8080
+GATEWAY_IP = "10.10.50.2"
+
+# Deterministic base timestamp: 2026-11-06 09:14:00 UTC
+BASE_TIME = datetime(2026, 11, 6, 9, 14, 0, tzinfo=timezone.utc)
+
+def iso_ts(offset_seconds: float) -> str:
+    dt = BASE_TIME + timedelta(seconds=offset_seconds)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{int(dt.microsecond / 1000):03d}Z"
+
+def epoch_ts(offset_seconds: float) -> tuple[int, int]:
+    dt = BASE_TIME + timedelta(seconds=offset_seconds)
+    sec = int(dt.timestamp())
+    usec = dt.microsecond
+    return sec, usec
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+# ------------------------------------------------------------------------------
+# PCAP Generation Helper (Ethernet + IPv4 + TCP)
+# ------------------------------------------------------------------------------
+class PcapWriter:
+    def __init__(self, filepath: Path):
+        self.filepath = filepath
+        self.packets = []
+
+    def write_header(self):
+        # Standard libpcap global header: Magic 0xa1b2c3d4, v2.4, snaplen 65535, LinkType 1 (Ethernet)
+        hdr = struct.pack('<IHHiIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1)
+        with open(self.filepath, 'wb') as f:
+            f.write(hdr)
+
+    def append_packet(self, sec: int, usec: int, raw_packet: bytes):
+        incl_len = len(raw_packet)
+        orig_len = len(raw_packet)
+        ph = struct.pack('<IIII', sec, usec, incl_len, orig_len)
+        with open(self.filepath, 'ab') as f:
+            f.write(ph)
+            f.write(raw_packet)
+
+def build_eth_ipv4_tcp_packet(src_mac: str, dst_mac: str, src_ip: str, dst_ip: str,
+                              src_port: int, dst_port: int, seq: int, ack: int,
+                              flags: int, payload: bytes = b"") -> bytes:
+    # 1. Ethernet Header (14 bytes)
+    def mac_to_bytes(m: str) -> bytes:
+        return bytes.fromhex(m.replace(":", ""))
+    eth_hdr = mac_to_bytes(dst_mac) + mac_to_bytes(src_mac) + struct.pack('!H', 0x0800)
+
+    # 2. IPv4 Header (20 bytes)
+    ip_ver_ihl = (4 << 4) | 5
+    ip_tos = 0
+    ip_total_len = 20 + 20 + len(payload)
+    ip_id = 0x1a2b
+    ip_frag = 0x4000  # DF
+    ip_ttl = 64
+    ip_proto = 6  # TCP
+    ip_src = socket.inet_aton(src_ip)
+    ip_dst = socket.inet_aton(dst_ip)
+    
+    # Calculate IP checksum
+    ip_hdr_no_cs = struct.pack('!BBHHHBBH4s4s', ip_ver_ihl, ip_tos, ip_total_len, ip_id, ip_frag, ip_ttl, ip_proto, 0, ip_src, ip_dst)
+    def checksum(msg):
+        s = 0
+        for i in range(0, len(msg) - 1, 2):
+            w = (msg[i] << 8) + msg[i+1]
+            s += w
+        if len(msg) % 2:
+            s += (msg[-1] << 8)
+        s = (s >> 16) + (s & 0xffff)
+        s += (s >> 16)
+        return ~s & 0xffff
+    ip_cs = checksum(ip_hdr_no_cs)
+    ip_hdr = struct.pack('!BBHHHBBH4s4s', ip_ver_ihl, ip_tos, ip_total_len, ip_id, ip_frag, ip_ttl, ip_proto, ip_cs, ip_src, ip_dst)
+
+    # 3. TCP Header (20 bytes)
+    tcp_offset_res = (5 << 4) | 0
+    tcp_flags_offset = (tcp_offset_res << 8) | flags
+    tcp_win = 64240
+    tcp_urg = 0
+    tcp_hdr_no_cs = struct.pack('!HHIIHHHH', src_port, dst_port, seq, ack, tcp_flags_offset, tcp_win, 0, tcp_urg)
+    
+    # TCP pseudo-header checksum
+    pseudo_hdr = struct.pack('!4s4sBBH', ip_src, ip_dst, 0, ip_proto, 20 + len(payload))
+    tcp_cs = checksum(pseudo_hdr + tcp_hdr_no_cs + payload)
+    tcp_hdr = struct.pack('!HHIIHHHH', src_port, dst_port, seq, ack, tcp_flags_offset, tcp_win, tcp_cs, tcp_urg)
+
+    return eth_hdr + ip_hdr + tcp_hdr + payload
+
+# ------------------------------------------------------------------------------
+# Evidence Package Generator
+# ------------------------------------------------------------------------------
+class EvidenceGenerator:
+    def __init__(self, output_dir: Path):
+        self.output_dir = output_dir
+        self.incident_dir = output_dir / INCIDENT_ID
+        self.endpoint_dir = self.incident_dir / "endpoint"
+        self.network_dir = self.incident_dir / "network"
+        self.wazuh_dir = self.incident_dir / "wazuh"
+        self.forensic_dir = self.incident_dir / "forensic"
+        self.metadata_dir = self.incident_dir / "metadata"
+
+    def setup_directories(self):
+        for d in [self.endpoint_dir, self.network_dir, self.wazuh_dir, self.forensic_dir, self.metadata_dir]:
+            d.mkdir(parents=True, exist_ok=True)
+
+    def generate_all(self):
+        print(f"[+] Generating incident evidence package for {INCIDENT_ID}...")
+        self.setup_directories()
+        
+        file_hashes_data = self.generate_forensic_files()
+        process_events = self.generate_process_events()
+        file_events = self.generate_file_events()
+        sysmon_events = self.generate_sysmon_events(process_events, file_events)
+        pcap_path = self.generate_pcap_capture()
+        wazuh_alerts = self.generate_wazuh_alerts()
+        timeline = self.generate_timeline()
+        indicators = self.generate_indicators(file_hashes_data)
+        
+        self.generate_incident_summary()
+        self.generate_metadata(file_hashes_data)
+        manifest = self.generate_manifest()
+        self.generate_checksums()
+        
+        print(f"[+] Evidence generation complete. Verifying package integrity...")
+        verified = self.verify_integrity()
+        if verified:
+            print(f"[+] Package integrity verification SUCCEEDED for {INCIDENT_ID}.")
+        else:
+            raise RuntimeError("Package integrity verification FAILED!")
+        return self.incident_dir
+
+    def generate_forensic_files(self) -> dict:
+        canaries = [
+            ("Q3_Financial_Audit.xlsx", 18432, "CONFIDENTIAL FINANCIAL AUDIT - Q3 2026. REVENUE: $4,290,000. EXPENSES: $2,810,000. STATUS: APPROVED."),
+            ("Client_Contracts_2026.docx", 24576, "MASTER SERVICES AGREEMENT - ENTERPRISE CLIENTS. LIABILITY: STANDARD. TERMINATION: 30 DAYS NOTICE."),
+            ("Employee_Payroll_Summary.pdf", 32768, "%PDF-1.4 EMPLOYEE PAYROLL AND BENEFIT DEDUCTION SUMMARY. OCTOBER 2026. CONFIDENTIAL HR DATA."),
+            ("Tax_Declaration_Draft.csv", 8192, "Year,Quarter,GrossRevenue,TaxableIncome,TaxWithheld\n2026,Q1,1520000,1210000,242000\n2026,Q2,1680000,1340000,268000"),
+            ("Customer_Database_Export.sql", 45056, "CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100), email VARCHAR(100), balance DECIMAL(10,2));\nINSERT INTO customers VALUES (1, 'Apex Ltd', 'billing@apex.lab', 14250.00);")
+        ]
+
+        key = b"LAB_REVERSIBLE_SIMULATION_KEY_2026!"
+        hashes_record = []
+
+        for name, size, text in canaries:
+            orig_bytes = text.encode('utf-8').ljust(size, b' ')
+            orig_hash = sha256_bytes(orig_bytes)
+            
+            # XOR reversible encryption
+            enc_bytes = bytes([b ^ key[i % len(key)] for i, b in enumerate(orig_bytes)])
+            enc_hash = sha256_bytes(enc_bytes)
+
+            hashes_record.append({
+                "original_filename": name,
+                "original_path": f"C:\\Users\\j.doe\\Documents\\FinanceReports\\{name}",
+                "original_sha256": orig_hash,
+                "original_size_bytes": size,
+                "encrypted_filename": f"{name}.locked",
+                "encrypted_path": f"C:\\Users\\j.doe\\Documents\\FinanceReports\\{name}.locked",
+                "encrypted_sha256": enc_hash,
+                "encrypted_size_bytes": size,
+                "encryption_algorithm": "AES256-GCM / XOR-Reversible-Emulation",
+                "modified_timestamp": iso_ts(108.820)
+            })
+
+        # Add ransom note record
+        note_content = (
+            "================================================================================\n"
+            "CRITICAL ALERT: YOUR FILES HAVE BEEN ENCRYPTED BY CRYTPO-LOCKER SIMULATION\n"
+            "================================================================================\n"
+            "Victim Identifier: WKSTN42-99824\n"
+            "Affected Folder:   C:\\Users\\j.doe\\Documents\\FinanceReports\n"
+            "Session Token:     SES-98214-LOCK\n"
+            "Recovery Portal:   http://10.10.50.30:8080/recover\n\n"
+            "This is a controlled SOC CyberRange training event.\n"
+            "To restore files, proceed through Module 2 incident response containment steps.\n"
+            "================================================================================\n"
+        ).encode('utf-8')
+        note_hash = sha256_bytes(note_content)
+
+        hashes_record.append({
+            "original_filename": None,
+            "original_path": None,
+            "original_sha256": None,
+            "original_size_bytes": None,
+            "encrypted_filename": "RESTORE_FILES_INFO.txt",
+            "encrypted_path": "C:\\Users\\j.doe\\Documents\\FinanceReports\\RESTORE_FILES_INFO.txt",
+            "encrypted_sha256": note_hash,
+            "encrypted_size_bytes": len(note_content),
+            "encryption_algorithm": "Plaintext Extortion Note",
+            "modified_timestamp": iso_ts(108.950)
+        })
+
+        out_path = self.forensic_dir / "file_hashes.json"
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(hashes_record, f, indent=2)
+
+        return hashes_record
+
+    def generate_process_events(self) -> list:
+        events = [
+            {
+                "EventID": 1,
+                "Provider": "Microsoft-Windows-Sysmon",
+                "UtcTime": iso_ts(22.105),
+                "ProcessGuid": "{7A3B912C-0000-0000-E112-984200000000}",
+                "ProcessId": 4912,
+                "Image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                "FileVersion": "2.1.0.4",
+                "Description": "Invoice Processing Utility (Unsigned)",
+                "Product": "Invoice Review Suite",
+                "Company": "Unknown Publisher",
+                "OriginalFileName": "invoice_review.exe",
+                "CommandLine": "\"C:\\Users\\j.doe\\Downloads\\invoice_review.exe\" --stage initial",
+                "CurrentDirectory": "C:\\Users\\j.doe\\Downloads\\",
+                "User": "DESKTOP-WKSTN42\\j.doe",
+                "LogonGuid": "{7A3B912C-0000-0000-0020-000000000000}",
+                "LogonId": "0x3e7a1",
+                "TerminalSessionId": 1,
+                "IntegrityLevel": "Medium",
+                "Hashes": "SHA256=d4f5e71c890ab234cde567890f1234567890abcdef1234567890abcdef123456",
+                "ParentProcessGuid": "{7A3B912C-0000-0000-0B1C-000000000000}",
+                "ParentProcessId": 2840,
+                "ParentImage": "C:\\Windows\\explorer.exe",
+                "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+            },
+            {
+                "EventID": 1,
+                "Provider": "Microsoft-Windows-Sysmon",
+                "UtcTime": iso_ts(35.110),
+                "ProcessGuid": "{7A3B912C-0000-0000-E112-984200000001}",
+                "ProcessId": 5120,
+                "Image": "C:\\Windows\\System32\\cmd.exe",
+                "FileVersion": "10.0.19041.1",
+                "Description": "Windows Command Processor",
+                "Product": "Microsoft Windows Operating System",
+                "Company": "Microsoft Corporation",
+                "OriginalFileName": "Cmd.Exe",
+                "CommandLine": "cmd.exe /c \"vssadmin.exe delete shadows /all /quiet\"",
+                "CurrentDirectory": "C:\\Users\\j.doe\\Downloads\\",
+                "User": "DESKTOP-WKSTN42\\j.doe",
+                "LogonId": "0x3e7a1",
+                "IntegrityLevel": "High",
+                "Hashes": "SHA256=b9961605330366eb4f8ff8f8280f339cf018da1284d7a86cf1325d7b51b2e283",
+                "ParentProcessGuid": "{7A3B912C-0000-0000-E112-984200000000}",
+                "ParentProcessId": 4912,
+                "ParentImage": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                "ParentCommandLine": "\"C:\\Users\\j.doe\\Downloads\\invoice_review.exe\" --stage initial"
+            },
+            {
+                "EventID": 1,
+                "Provider": "Microsoft-Windows-Sysmon",
+                "UtcTime": iso_ts(35.340),
+                "ProcessGuid": "{7A3B912C-0000-0000-E112-984200000002}",
+                "ProcessId": 5288,
+                "Image": "C:\\Windows\\System32\\vssadmin.exe",
+                "FileVersion": "10.0.19041.1",
+                "Description": "Volume Shadow Copy Service administrative tool",
+                "Product": "Microsoft Windows Operating System",
+                "Company": "Microsoft Corporation",
+                "OriginalFileName": "VSSADMIN.EXE",
+                "CommandLine": "vssadmin.exe delete shadows /all /quiet",
+                "CurrentDirectory": "C:\\Users\\j.doe\\Downloads\\",
+                "User": "DESKTOP-WKSTN42\\j.doe",
+                "LogonId": "0x3e7a1",
+                "IntegrityLevel": "High",
+                "Hashes": "SHA256=96e1b7f2f6a7d5cb448107c87c12669466e344e649033e50e9324c084f70fa24",
+                "ParentProcessGuid": "{7A3B912C-0000-0000-E112-984200000001}",
+                "ParentProcessId": 5120,
+                "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+                "ParentCommandLine": "cmd.exe /c \"vssadmin.exe delete shadows /all /quiet\""
+            }
+        ]
+
+        out_path = self.endpoint_dir / "process_events.jsonl"
+        with open(out_path, 'w', encoding='utf-8') as f:
+            for ev in events:
+                f.write(json.dumps(ev) + "\n")
+
+        return events
+
+    def generate_file_events(self) -> list:
+        canary_names = [
+            "Q3_Financial_Audit.xlsx",
+            "Client_Contracts_2026.docx",
+            "Employee_Payroll_Summary.pdf",
+            "Tax_Declaration_Draft.csv",
+            "Customer_Database_Export.sql"
+        ]
+
+        file_events = []
+        for i, name in enumerate(canary_names):
+            # Sysmon 11: FileCreate (Locked File)
+            file_events.append({
+                "EventID": 11,
+                "Provider": "Microsoft-Windows-Sysmon",
+                "UtcTime": iso_ts(100.0 + (i * 1.5)),
+                "ProcessGuid": "{7A3B912C-0000-0000-E112-984200000000}",
+                "ProcessId": 4912,
+                "Image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                "TargetFilename": f"C:\\Users\\j.doe\\Documents\\FinanceReports\\{name}.locked",
+                "CreationUtcTime": iso_ts(100.0 + (i * 1.5)),
+                "User": "DESKTOP-WKSTN42\\j.doe",
+                "Operation": "Create"
+            })
+            # Sysmon 23 / 26: FileDelete
+            file_events.append({
+                "EventID": 23,
+                "Provider": "Microsoft-Windows-Sysmon",
+                "UtcTime": iso_ts(100.2 + (i * 1.5)),
+                "ProcessGuid": "{7A3B912C-0000-0000-E112-984200000000}",
+                "ProcessId": 4912,
+                "Image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                "TargetFilename": f"C:\\Users\\j.doe\\Documents\\FinanceReports\\{name}",
+                "User": "DESKTOP-WKSTN42\\j.doe",
+                "Operation": "DeleteOriginal"
+            })
+
+        # Drop ransom note
+        file_events.append({
+            "EventID": 11,
+            "Provider": "Microsoft-Windows-Sysmon",
+            "UtcTime": iso_ts(108.950),
+            "ProcessGuid": "{7A3B912C-0000-0000-E112-984200000000}",
+            "ProcessId": 4912,
+            "Image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+            "TargetFilename": "C:\\Users\\j.doe\\Documents\\FinanceReports\\RESTORE_FILES_INFO.txt",
+            "CreationUtcTime": iso_ts(108.950),
+            "User": "DESKTOP-WKSTN42\\j.doe",
+            "Operation": "CreateRansomNote"
+        })
+
+        out_path = self.endpoint_dir / "file_activity.jsonl"
+        with open(out_path, 'w', encoding='utf-8') as f:
+            for fe in file_events:
+                f.write(json.dumps(fe) + "\n")
+
+        return file_events
+
+    def generate_sysmon_events(self, proc_events: list, file_events: list) -> list:
+        # Include Sysmon Event ID 3 (Network Connect)
+        net_events = [
+            {
+                "EventID": 3,
+                "Provider": "Microsoft-Windows-Sysmon",
+                "UtcTime": iso_ts(62.450),
+                "ProcessGuid": "{7A3B912C-0000-0000-E112-984200000000}",
+                "ProcessId": 4912,
+                "Image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                "User": "DESKTOP-WKSTN42\\j.doe",
+                "Protocol": "tcp",
+                "Initiated": "true",
+                "SourceIp": TARGET_IP,
+                "SourceHostname": TARGET_HOST,
+                "SourcePort": 49812,
+                "SourcePortName": "",
+                "DestinationIp": C2_IP,
+                "DestinationHostname": "corp-mockc2.lab",
+                "DestinationPort": C2_PORT,
+                "DestinationPortName": "http-alt"
+            },
+            {
+                "EventID": 3,
+                "Provider": "Microsoft-Windows-Sysmon",
+                "UtcTime": iso_ts(75.010),
+                "ProcessGuid": "{7A3B912C-0000-0000-E112-984200000000}",
+                "ProcessId": 4912,
+                "Image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                "User": "DESKTOP-WKSTN42\\j.doe",
+                "Protocol": "tcp",
+                "Initiated": "true",
+                "SourceIp": TARGET_IP,
+                "SourceHostname": TARGET_HOST,
+                "SourcePort": 49814,
+                "SourcePortName": "",
+                "DestinationIp": C2_IP,
+                "DestinationHostname": "corp-mockc2.lab",
+                "DestinationPort": C2_PORT,
+                "DestinationPortName": "http-alt"
+            }
+        ]
+
+        all_sysmon = proc_events + net_events + file_events
+        # Sort by UtcTime
+        all_sysmon.sort(key=lambda x: x["UtcTime"])
+
+        out_path = self.endpoint_dir / "sysmon_events.jsonl"
+        with open(out_path, 'w', encoding='utf-8') as f:
+            for ev in all_sysmon:
+                f.write(json.dumps(ev) + "\n")
+
+        # Also write a standard binary EVTX stub/container for forensic tool compatibility
+        evtx_path = self.endpoint_dir / "system_events.evtx"
+        evtx_header = b"ElfFile\x00" + struct.pack('<QQIIHHI', 0, 0, 1, 0, 128, 4096, len(all_sysmon))
+        evtx_header = evtx_header.ljust(4096, b'\x00')
+        with open(evtx_path, 'wb') as f:
+            f.write(evtx_header)
+
+        return all_sysmon
+
+    def generate_pcap_capture(self) -> Path:
+        pcap_file = self.network_dir / "network_capture.pcap"
+        writer = PcapWriter(pcap_file)
+        writer.write_header()
+
+        client_mac = "02:42:0a:0a:32:2a"
+        router_mac = "02:42:0a:0a:32:02"
+        c2_mac = "02:42:0a:0a:32:1e"
+
+        # Session 1: POST /api/v1/session/negotiate
+        c_port = 49812
+        seq_c = 10000
+        seq_s = 50000
+
+        # SYN
+        s, u = epoch_ts(62.450)
+        pkt = build_eth_ipv4_tcp_packet(client_mac, router_mac, TARGET_IP, C2_IP, c_port, C2_PORT, seq_c, 0, 0x02) # SYN
+        writer.append_packet(s, u, pkt)
+
+        # SYN-ACK
+        s, u = epoch_ts(62.455)
+        pkt = build_eth_ipv4_tcp_packet(c2_mac, router_mac, C2_IP, TARGET_IP, C2_PORT, c_port, seq_s, seq_c + 1, 0x12) # SYN-ACK
+        writer.append_packet(s, u, pkt)
+        seq_c += 1
+        seq_s += 1
+
+        # ACK
+        s, u = epoch_ts(62.458)
+        pkt = build_eth_ipv4_tcp_packet(client_mac, router_mac, TARGET_IP, C2_IP, c_port, C2_PORT, seq_c, seq_s, 0x10) # ACK
+        writer.append_packet(s, u, pkt)
+
+        # HTTP POST Request
+        body = json.dumps({"host": TARGET_HOST, "user": VICTIM_USER, "action": "key_exchange", "nonce": "A8F932D"})
+        req = (
+            f"POST /api/v1/session/negotiate HTTP/1.1\r\n"
+            f"Host: {C2_IP}:{C2_PORT}\r\n"
+            f"User-Agent: WinCryptoSync/2.1 (Workstation; x64)\r\n"
+            f"X-Victim-ID: WKSTN42-99824\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"Connection: close\r\n\r\n"
+            f"{body}"
+        ).encode('utf-8')
+        s, u = epoch_ts(62.460)
+        pkt = build_eth_ipv4_tcp_packet(client_mac, router_mac, TARGET_IP, C2_IP, c_port, C2_PORT, seq_c, seq_s, 0x18, req) # PSH-ACK
+        writer.append_packet(s, u, pkt)
+        seq_c += len(req)
+
+        # Server ACK
+        s, u = epoch_ts(62.465)
+        pkt = build_eth_ipv4_tcp_packet(c2_mac, router_mac, C2_IP, TARGET_IP, C2_PORT, c_port, seq_s, seq_c, 0x10)
+        writer.append_packet(s, u, pkt)
+
+        # Server HTTP Response
+        resp_body = json.dumps({
+            "status": "established",
+            "session_token": "SES-98214-LOCK",
+            "encryption_alg": "AES256-GCM",
+            "server_time": iso_ts(62.470)
+        })
+        resp = (
+            f"HTTP/1.1 200 OK\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(resp_body)}\r\n"
+            f"Connection: close\r\n\r\n"
+            f"{resp_body}"
+        ).encode('utf-8')
+        s, u = epoch_ts(62.470)
+        pkt = build_eth_ipv4_tcp_packet(c2_mac, router_mac, C2_IP, TARGET_IP, C2_PORT, c_port, seq_s, seq_c, 0x18, resp)
+        writer.append_packet(s, u, pkt)
+        seq_s += len(resp)
+
+        # FIN-ACK Handshake
+        s, u = epoch_ts(62.475)
+        pkt = build_eth_ipv4_tcp_packet(c2_mac, router_mac, C2_IP, TARGET_IP, C2_PORT, c_port, seq_s, seq_c, 0x11)
+        writer.append_packet(s, u, pkt)
+        s, u = epoch_ts(62.478)
+        pkt = build_eth_ipv4_tcp_packet(client_mac, router_mac, TARGET_IP, C2_IP, c_port, C2_PORT, seq_c, seq_s + 1, 0x11)
+        writer.append_packet(s, u, pkt)
+
+        # Session 2: GET /api/v1/beacon
+        c_port2 = 49814
+        seq_c2 = 20000
+        seq_s2 = 60000
+        s, u = epoch_ts(75.010)
+        pkt = build_eth_ipv4_tcp_packet(client_mac, router_mac, TARGET_IP, C2_IP, c_port2, C2_PORT, seq_c2, 0, 0x02)
+        writer.append_packet(s, u, pkt)
+        s, u = epoch_ts(75.015)
+        pkt = build_eth_ipv4_tcp_packet(c2_mac, router_mac, C2_IP, TARGET_IP, C2_PORT, c_port2, seq_s2, seq_c2 + 1, 0x12)
+        writer.append_packet(s, u, pkt)
+        seq_c2 += 1
+        seq_s2 += 1
+
+        beacon_req = (
+            f"GET /api/v1/beacon?session=SES-98214-LOCK&status=encrypting HTTP/1.1\r\n"
+            f"Host: {C2_IP}:{C2_PORT}\r\n"
+            f"User-Agent: WinCryptoSync/2.1 (Workstation; x64)\r\n"
+            f"Connection: close\r\n\r\n"
+        ).encode('utf-8')
+        s, u = epoch_ts(75.020)
+        pkt = build_eth_ipv4_tcp_packet(client_mac, router_mac, TARGET_IP, C2_IP, c_port2, C2_PORT, seq_c2, seq_s2, 0x18, beacon_req)
+        writer.append_packet(s, u, pkt)
+        seq_c2 += len(beacon_req)
+
+        beacon_resp_body = json.dumps({"ack": True, "command": "proceed"})
+        beacon_resp = (
+            f"HTTP/1.1 200 OK\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(beacon_resp_body)}\r\n"
+            f"Connection: close\r\n\r\n"
+            f"{beacon_resp_body}"
+        ).encode('utf-8')
+        s, u = epoch_ts(75.025)
+        pkt = build_eth_ipv4_tcp_packet(c2_mac, router_mac, C2_IP, TARGET_IP, C2_PORT, c_port2, seq_s2, seq_c2, 0x18, beacon_resp)
+        writer.append_packet(s, u, pkt)
+
+        # Write C2 conversation summary
+        c2_summary = [
+            {
+                "session_id": "SES-98214-LOCK",
+                "client_endpoint": f"{TARGET_IP}:49812",
+                "server_endpoint": f"{C2_IP}:{C2_PORT}",
+                "method": "POST",
+                "uri": "/api/v1/session/negotiate",
+                "user_agent": "WinCryptoSync/2.1 (Workstation; x64)",
+                "status_code": 200,
+                "request_timestamp": iso_ts(62.460),
+                "payload_summary": "Session key exchange handshake and encryption algorithm negotiation"
+            },
+            {
+                "session_id": "SES-98214-LOCK",
+                "client_endpoint": f"{TARGET_IP}:49814",
+                "server_endpoint": f"{C2_IP}:{C2_PORT}",
+                "method": "GET",
+                "uri": "/api/v1/beacon?session=SES-98214-LOCK&status=encrypting",
+                "user_agent": "WinCryptoSync/2.1 (Workstation; x64)",
+                "status_code": 200,
+                "request_timestamp": iso_ts(75.020),
+                "payload_summary": "Status heartbeat beacon confirming encryption progress"
+            }
+        ]
+        with open(self.network_dir / "c2_conversations.json", 'w', encoding='utf-8') as f:
+            json.dump(c2_summary, f, indent=2)
+
+        return pcap_file
+
+    def generate_wazuh_alerts(self) -> list:
+        alerts = [
+            {
+                "timestamp": iso_ts(22.250),
+                "rule": {
+                    "level": 10,
+                    "description": "Ransomware Emulation: Executable launched directly from user Downloads folder",
+                    "id": "100201",
+                    "mitre": {
+                        "id": ["T1204.002"],
+                        "tactic": ["Execution"],
+                        "technique": ["User Execution: Malicious File"]
+                    },
+                    "groups": ["windows", "ransomware_simulation"]
+                },
+                "agent": {
+                    "id": "002",
+                    "name": TARGET_HOST,
+                    "ip": TARGET_IP
+                },
+                "manager": {
+                    "name": "wazuh-manager"
+                },
+                "id": "1730884462.1001",
+                "data": {
+                    "win": {
+                        "eventdata": {
+                            "image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                            "commandLine": "\"C:\\Users\\j.doe\\Downloads\\invoice_review.exe\" --stage initial",
+                            "processId": "4912",
+                            "parentImage": "C:\\Windows\\explorer.exe",
+                            "parentProcessId": "2840",
+                            "user": "DESKTOP-WKSTN42\\j.doe"
+                        },
+                        "system": {
+                            "eventID": "1",
+                            "channel": "Microsoft-Windows-Sysmon/Operational"
+                        }
+                    }
+                }
+            },
+            {
+                "timestamp": iso_ts(35.400),
+                "rule": {
+                    "level": 12,
+                    "description": "Ransomware Emulation: Volume shadow copy deletion attempted via vssadmin",
+                    "id": "100202",
+                    "mitre": {
+                        "id": ["T1490"],
+                        "tactic": ["Impact"],
+                        "technique": ["Inhibit System Recovery"]
+                    },
+                    "groups": ["windows", "ransomware_simulation"]
+                },
+                "agent": {
+                    "id": "002",
+                    "name": TARGET_HOST,
+                    "ip": TARGET_IP
+                },
+                "manager": {
+                    "name": "wazuh-manager"
+                },
+                "id": "1730884475.1002",
+                "data": {
+                    "win": {
+                        "eventdata": {
+                            "image": "C:\\Windows\\System32\\vssadmin.exe",
+                            "commandLine": "vssadmin.exe delete shadows /all /quiet",
+                            "processId": "5288",
+                            "parentImage": "C:\\Windows\\System32\\cmd.exe",
+                            "parentProcessId": "5120",
+                            "user": "DESKTOP-WKSTN42\\j.doe"
+                        },
+                        "system": {
+                            "eventID": "1",
+                            "channel": "Microsoft-Windows-Sysmon/Operational"
+                        }
+                    }
+                }
+            },
+            {
+                "timestamp": iso_ts(62.500),
+                "rule": {
+                    "level": 9,
+                    "description": "Ransomware Emulation: Suspicious outbound network connection to external C2 port",
+                    "id": "100204",
+                    "mitre": {
+                        "id": ["T1071.001", "T1573.001"],
+                        "tactic": ["Command and Control"],
+                        "technique": ["Application Layer Protocol: Web Protocols"]
+                    },
+                    "groups": ["windows", "ransomware_simulation"]
+                },
+                "agent": {
+                    "id": "002",
+                    "name": TARGET_HOST,
+                    "ip": TARGET_IP
+                },
+                "manager": {
+                    "name": "wazuh-manager"
+                },
+                "id": "1730884502.1003",
+                "data": {
+                    "win": {
+                        "eventdata": {
+                            "image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                            "processId": "4912",
+                            "destinationIp": C2_IP,
+                            "destinationPort": str(C2_PORT),
+                            "protocol": "tcp",
+                            "user": "DESKTOP-WKSTN42\\j.doe"
+                        },
+                        "system": {
+                            "eventID": "3",
+                            "channel": "Microsoft-Windows-Sysmon/Operational"
+                        }
+                    }
+                }
+            },
+            {
+                "timestamp": iso_ts(109.100),
+                "rule": {
+                    "level": 14,
+                    "description": "Ransomware Emulation: Canary file extension alteration (.locked) or ransom note creation",
+                    "id": "100203",
+                    "mitre": {
+                        "id": ["T1486"],
+                        "tactic": ["Impact"],
+                        "technique": ["Data Encrypted for Impact"]
+                    },
+                    "groups": ["windows", "ransomware_simulation"]
+                },
+                "agent": {
+                    "id": "002",
+                    "name": TARGET_HOST,
+                    "ip": TARGET_IP
+                },
+                "manager": {
+                    "name": "wazuh-manager"
+                },
+                "id": "1730884549.1004",
+                "data": {
+                    "win": {
+                        "eventdata": {
+                            "image": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                            "processId": "4912",
+                            "targetFilename": "C:\\Users\\j.doe\\Documents\\FinanceReports\\RESTORE_FILES_INFO.txt",
+                            "user": "DESKTOP-WKSTN42\\j.doe"
+                        },
+                        "system": {
+                            "eventID": "11",
+                            "channel": "Microsoft-Windows-Sysmon/Operational"
+                        }
+                    }
+                }
+            }
+        ]
+
+        out_path = self.wazuh_dir / "wazuh_alerts.json"
+        with open(out_path, 'w', encoding='utf-8') as f:
+            for alert in alerts:
+                f.write(json.dumps(alert) + "\n")
+
+        return alerts
+
+    def generate_timeline(self) -> list:
+        timeline = [
+            {
+                "timestamp": iso_ts(22.105),
+                "stage": "Stage 1: Initial Execution",
+                "source": "Sysmon Event ID 1",
+                "description": "User j.doe executed invoice_review.exe from Downloads folder via explorer.exe",
+                "process": "invoice_review.exe (PID: 4912)",
+                "technique": "T1204.002",
+                "severity": "MEDIUM",
+                "wazuh_rule": "100201"
+            },
+            {
+                "timestamp": iso_ts(35.110),
+                "stage": "Stage 2: Defense Impairment",
+                "source": "Sysmon Event ID 1",
+                "description": "invoice_review.exe spawned cmd.exe to execute shadow copy deletion command",
+                "process": "cmd.exe (PID: 5120)",
+                "technique": "T1059.003",
+                "severity": "HIGH",
+                "wazuh_rule": None
+            },
+            {
+                "timestamp": iso_ts(35.340),
+                "stage": "Stage 2: Defense Impairment",
+                "source": "Sysmon Event ID 1",
+                "description": "vssadmin.exe executed: 'vssadmin delete shadows /all /quiet' to destroy backup copies",
+                "process": "vssadmin.exe (PID: 5288)",
+                "technique": "T1490",
+                "severity": "CRITICAL",
+                "wazuh_rule": "100202"
+            },
+            {
+                "timestamp": iso_ts(62.450),
+                "stage": "Stage 3: C2 Communication",
+                "source": "Sysmon Event ID 3 & Network PCAP",
+                "description": "TCP connection initiated to Mock C2 (10.10.50.30:8080) for key negotiation",
+                "process": "invoice_review.exe (PID: 4912)",
+                "technique": "T1071.001",
+                "severity": "HIGH",
+                "wazuh_rule": "100204"
+            },
+            {
+                "timestamp": iso_ts(75.010),
+                "stage": "Stage 3: C2 Communication",
+                "source": "Sysmon Event ID 3 & Network PCAP",
+                "description": "Heartbeat beacon sent to C2: /api/v1/beacon?session=SES-98214-LOCK",
+                "process": "invoice_review.exe (PID: 4912)",
+                "technique": "T1071.001",
+                "severity": "MEDIUM",
+                "wazuh_rule": None
+            },
+            {
+                "timestamp": iso_ts(100.0),
+                "stage": "Stage 4: File Encryption",
+                "source": "Sysmon Event ID 11",
+                "description": "Mass canary file modification begins in FinanceReports folder",
+                "process": "invoice_review.exe (PID: 4912)",
+                "technique": "T1486",
+                "severity": "CRITICAL",
+                "wazuh_rule": None
+            },
+            {
+                "timestamp": iso_ts(108.950),
+                "stage": "Stage 4: File Encryption",
+                "source": "Sysmon Event ID 11",
+                "description": "Extortion ransom note RESTORE_FILES_INFO.txt created in FinanceReports directory",
+                "process": "invoice_review.exe (PID: 4912)",
+                "technique": "T1486",
+                "severity": "CRITICAL",
+                "wazuh_rule": "100203"
+            }
+        ]
+
+        out_path = self.incident_dir / "incident_timeline.json"
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(timeline, f, indent=2)
+
+        return timeline
+
+    def generate_indicators(self, file_hashes: list) -> dict:
+        indicators = {
+            "incident_id": INCIDENT_ID,
+            "ip_addresses": [
+                {"ip": TARGET_IP, "role": "Affected Workstation", "hostname": TARGET_HOST},
+                {"ip": C2_IP, "role": "Command and Control Server", "port": C2_PORT, "proto": "HTTP/TCP"}
+            ],
+            "file_hashes": [
+                {
+                    "filename": "invoice_review.exe",
+                    "path": "C:\\Users\\j.doe\\Downloads\\invoice_review.exe",
+                    "sha256": "d4f5e71c890ab234cde567890f1234567890abcdef1234567890abcdef123456",
+                    "type": "Malware Executable / Dropper"
+                }
+            ],
+            "uri_paths": [
+                "/api/v1/session/negotiate",
+                "/api/v1/beacon",
+                "/recover"
+            ],
+            "user_agents": [
+                "WinCryptoSync/2.1 (Workstation; x64)"
+            ],
+            "ransom_notes": [
+                "RESTORE_FILES_INFO.txt"
+            ],
+            "encrypted_file_extensions": [
+                ".locked"
+            ]
+        }
+
+        out_path = self.forensic_dir / "indicators.json"
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(indicators, f, indent=2)
+
+        return indicators
+
+    def generate_incident_summary(self):
+        summary = {
+            "incident_id": INCIDENT_ID,
+            "scenario_id": SCENARIO_ID,
+            "title": "Ransomware Incident Investigation — Finance Workstation Intrusion",
+            "severity": "HIGH",
+            "status": "READY_FOR_INVESTIGATION",
+            "affected_host": {
+                "hostname": TARGET_HOST,
+                "ip_address": TARGET_IP,
+                "os": "Windows 10 Pro 64-bit (Build 19045)",
+                "logged_in_user": VICTIM_USER
+            },
+            "root_cause_summary": "User downloaded and executed unvetted binary 'invoice_review.exe' which impaired shadow copies, negotiated keys with external mock C2 (10.10.50.30:8080), and reversibly modified 5 canary spreadsheets/documents appending '.locked'.",
+            "investigation_scope": {
+                "endpoint_logs": "process_events.jsonl, file_activity.jsonl, sysmon_events.jsonl, system_events.evtx",
+                "network_capture": "network_capture.pcap (Ethernet IPv4 TCP HTTP sessions)",
+                "soc_alerts": "wazuh_alerts.json (Rules 100201, 100202, 100203, 100204)",
+                "forensics": "file_hashes.json, indicators.json"
+            }
+        }
+        with open(self.incident_dir / "incident.json", 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2)
+
+    def generate_metadata(self, file_hashes: list):
+        meta = {
+            "collection_id": f"COL-{INCIDENT_ID}",
+            "collector_name": "CyberRangeCZ-TelemetryCollector",
+            "collector_version": "2.4.0",
+            "collection_start_utc": iso_ts(0.0),
+            "collection_end_utc": iso_ts(120.0),
+            "target_system": {
+                "hostname": TARGET_HOST,
+                "os": "Windows 10 Pro x64",
+                "ip": TARGET_IP,
+                "agent_id": "002"
+            },
+            "artifacts_collected_count": 10,
+            "collection_status": "SUCCESS",
+            "missing_artifacts": []
+        }
+        with open(self.metadata_dir / "collection_metadata.json", 'w', encoding='utf-8') as f:
+            json.dump(meta, f, indent=2)
+
+    def generate_manifest(self) -> dict:
+        manifest = {
+            "incident_id": INCIDENT_ID,
+            "scenario_id": SCENARIO_ID,
+            "scenario_version": SCENARIO_VERSION,
+            "evidence_schema_version": SCHEMA_VERSION,
+            "target_hostname": TARGET_HOST,
+            "target_os": "Windows 10 Pro (Build 19045)",
+            "collection_start_utc": iso_ts(0.0),
+            "collection_end_utc": iso_ts(120.0),
+            "data_classification": {
+                "observed_facts": [
+                    "Sysmon Event ID 1: invoice_review.exe launched with PID 4912 from Downloads directory",
+                    "Sysmon Event ID 1: vssadmin.exe delete shadows executed with PID 5288",
+                    "Network Capture: Outbound HTTP POST to 10.10.50.30:8080 with X-Victim-ID header",
+                    "Sysmon Event ID 11: 5 canary files renamed with .locked extension and RESTORE_FILES_INFO.txt created",
+                    "Wazuh Alert Logs: Detections triggered on Rules 100201, 100202, 100203, 100204"
+                ],
+                "derived_findings": [
+                    "Initial execution vector is untrusted executable execution from user Downloads folder",
+                    "Adversary impaired backup recovery capability prior to file modification",
+                    "Adversary established external C2 channel for cryptographic key exchange",
+                    "High confidence ransomware-like extortion behavior identified"
+                ],
+                "analyst_interpretations": [
+                    "Simulation represents an intermediate-stage ransomware intrusion (LockBit / Conti style progression)",
+                    "Decoy directory contained canary finance data; no lateral movement occurred outside target"
+                ],
+                "expected_containment": [
+                    "Immediate network isolation of DESKTOP-WKSTN42",
+                    "Termination of invoice_review.exe process tree",
+                    "Decoy file restoration from safe backup key"
+                ]
+            },
+            "artifacts": {}
+        }
+
+        # Index all files in the incident directory (except manifest itself)
+        for p in self.incident_dir.rglob("*"):
+            if p.is_file() and p.name != "manifest.json" and p.name != "checksums.sha256":
+                rel = p.relative_to(self.incident_dir).as_posix()
+                manifest["artifacts"][rel] = {
+                    "path": rel,
+                    "size_bytes": p.stat().st_size,
+                    "sha256": sha256_file(p),
+                    "category": rel.split("/")[0] if "/" in rel else "root"
+                }
+
+        with open(self.incident_dir / "manifest.json", 'w', encoding='utf-8') as f:
+            json.dump(manifest, f, indent=2)
+
+        return manifest
+
+    def generate_checksums(self):
+        checksum_file = self.metadata_dir / "checksums.sha256"
+        lines = []
+        for p in sorted(self.incident_dir.rglob("*")):
+            if p.is_file() and p != checksum_file:
+                h = sha256_file(p)
+                rel = p.relative_to(self.incident_dir).as_posix()
+                lines.append(f"{h}  {rel}")
+        
+        with open(checksum_file, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines) + "\n")
+
+    def verify_integrity(self) -> bool:
+        checksum_file = self.metadata_dir / "checksums.sha256"
+        if not checksum_file.exists():
+            return False
+        
+        with open(checksum_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                expected_hash, rel_path = line.split("  ", 1)
+                target_path = self.incident_dir / rel_path
+                if not target_path.exists():
+                    print(f"[-] Integrity Check Missing: {rel_path}")
+                    return False
+                actual_hash = sha256_file(target_path)
+                if actual_hash != expected_hash:
+                    print(f"[-] Hash mismatch on {rel_path}: expected {expected_hash}, got {actual_hash}")
+                    return False
+        return True
+
+def main():
+    base_dir = Path(__file__).resolve().parent.parent
+    evidence_base = base_dir / "evidence"
+    gen = EvidenceGenerator(evidence_base)
+    inc_dir = gen.generate_all()
+    print(f"\n[+] Success: Incident package generated at {inc_dir}")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

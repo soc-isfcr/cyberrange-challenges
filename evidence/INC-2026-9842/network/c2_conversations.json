@@ -1,0 +1,24 @@
+[
+  {
+    "session_id": "SES-98214-LOCK",
+    "client_endpoint": "10.10.50.42:49812",
+    "server_endpoint": "10.10.50.30:8080",
+    "method": "POST",
+    "uri": "/api/v1/session/negotiate",
+    "user_agent": "WinCryptoSync/2.1 (Workstation; x64)",
+    "status_code": 200,
+    "request_timestamp": "2026-11-06T09:15:02.460Z",
+    "payload_summary": "Session key exchange handshake and encryption algorithm negotiation"
+  },
+  {
+    "session_id": "SES-98214-LOCK",
+    "client_endpoint": "10.10.50.42:49814",
+    "server_endpoint": "10.10.50.30:8080",
+    "method": "GET",
+    "uri": "/api/v1/beacon?session=SES-98214-LOCK&status=encrypting",
+    "user_agent": "WinCryptoSync/2.1 (Workstation; x64)",
+    "status_code": 200,
+    "request_timestamp": "2026-11-06T09:15:15.020Z",
+    "payload_summary": "Status heartbeat beacon confirming encryption progress"
+  }
+]

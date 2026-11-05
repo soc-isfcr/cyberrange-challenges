@@ -1,0 +1,72 @@
+[
+  {
+    "timestamp": "2026-11-06T09:14:22.105Z",
+    "stage": "Stage 1: Initial Execution",
+    "source": "Sysmon Event ID 1",
+    "description": "User j.doe executed invoice_review.exe from Downloads folder via explorer.exe",
+    "process": "invoice_review.exe (PID: 4912)",
+    "technique": "T1204.002",
+    "severity": "MEDIUM",
+    "wazuh_rule": "100201"
+  },
+  {
+    "timestamp": "2026-11-06T09:14:35.110Z",
+    "stage": "Stage 2: Defense Impairment",
+    "source": "Sysmon Event ID 1",
+    "description": "invoice_review.exe spawned cmd.exe to execute shadow copy deletion command",
+    "process": "cmd.exe (PID: 5120)",
+    "technique": "T1059.003",
+    "severity": "HIGH",
+    "wazuh_rule": null
+  },
+  {
+    "timestamp": "2026-11-06T09:14:35.340Z",
+    "stage": "Stage 2: Defense Impairment",
+    "source": "Sysmon Event ID 1",
+    "description": "vssadmin.exe executed: 'vssadmin delete shadows /all /quiet' to destroy backup copies",
+    "process": "vssadmin.exe (PID: 5288)",
+    "technique": "T1490",
+    "severity": "CRITICAL",
+    "wazuh_rule": "100202"
+  },
+  {
+    "timestamp": "2026-11-06T09:15:02.450Z",
+    "stage": "Stage 3: C2 Communication",
+    "source": "Sysmon Event ID 3 & Network PCAP",
+    "description": "TCP connection initiated to Mock C2 (10.10.50.30:8080) for key negotiation",
+    "process": "invoice_review.exe (PID: 4912)",
+    "technique": "T1071.001",
+    "severity": "HIGH",
+    "wazuh_rule": "100204"
+  },
+  {
+    "timestamp": "2026-11-06T09:15:15.010Z",
+    "stage": "Stage 3: C2 Communication",
+    "source": "Sysmon Event ID 3 & Network PCAP",
+    "description": "Heartbeat beacon sent to C2: /api/v1/beacon?session=SES-98214-LOCK",
+    "process": "invoice_review.exe (PID: 4912)",
+    "technique": "T1071.001",
+    "severity": "MEDIUM",
+    "wazuh_rule": null
+  },
+  {
+    "timestamp": "2026-11-06T09:15:40.000Z",
+    "stage": "Stage 4: File Encryption",
+    "source": "Sysmon Event ID 11",
+    "description": "Mass canary file modification begins in FinanceReports folder",
+    "process": "invoice_review.exe (PID: 4912)",
+    "technique": "T1486",
+    "severity": "CRITICAL",
+    "wazuh_rule": null
+  },
+  {
+    "timestamp": "2026-11-06T09:15:48.950Z",
+    "stage": "Stage 4: File Encryption",
+    "source": "Sysmon Event ID 11",
+    "description": "Extortion ransom note RESTORE_FILES_INFO.txt created in FinanceReports directory",
+    "process": "invoice_review.exe (PID: 4912)",
+    "technique": "T1486",
+    "severity": "CRITICAL",
+    "wazuh_rule": "100203"
+  }
+]

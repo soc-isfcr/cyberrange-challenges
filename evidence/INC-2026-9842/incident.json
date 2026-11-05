@@ -1,0 +1,20 @@
+{
+  "incident_id": "INC-2026-9842",
+  "scenario_id": "soc-ransomware-investigation",
+  "title": "Ransomware Incident Investigation \u2014 Finance Workstation Intrusion",
+  "severity": "HIGH",
+  "status": "READY_FOR_INVESTIGATION",
+  "affected_host": {
+    "hostname": "DESKTOP-WKSTN42",
+    "ip_address": "10.10.50.42",
+    "os": "Windows 10 Pro 64-bit (Build 19045)",
+    "logged_in_user": "j.doe"
+  },
+  "root_cause_summary": "User downloaded and executed unvetted binary 'invoice_review.exe' which impaired shadow copies, negotiated keys with external mock C2 (10.10.50.30:8080), and reversibly modified 5 canary spreadsheets/documents appending '.locked'.",
+  "investigation_scope": {
+    "endpoint_logs": "process_events.jsonl, file_activity.jsonl, sysmon_events.jsonl, system_events.evtx",
+    "network_capture": "network_capture.pcap (Ethernet IPv4 TCP HTTP sessions)",
+    "soc_alerts": "wazuh_alerts.json (Rules 100201, 100202, 100203, 100204)",
+    "forensics": "file_hashes.json, indicators.json"
+  }
+}

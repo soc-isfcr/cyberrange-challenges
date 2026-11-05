@@ -1,0 +1,19 @@
+{
+  "completed_lessons": [
+    "lesson_1"
+  ],
+  "checkpoint_scores": {
+    "L1_C1": {
+      "passed": true,
+      "earned": 8,
+      "max": 10,
+      "submitted": "DESKTOP-WKSTN42\\j.doe"
+    }
+  },
+  "hints_used": {
+    "L1_C1": true
+  },
+  "total_score": 8,
+  "max_score": 100,
+  "percentage": 8.0
+}
