@@ -21,3 +21,4 @@ This challenge is an enterprise security training environment. The simulation de
 4. **Credential Isolation:** No live credentials, OpenStack tokens, Wazuh master keys, or private SSH keys are stored in version control or visible in trainee directories.
 5. **Answer Key Protection:** The Module 1 assessment key is strictly decoupled from the trainee evidence package and resides only in instructor evaluation modules.
 6. **Multi-Tenant Session Isolation:** In CyberRangeCZ, each trainee receives an isolated OpenStack project sandbox and unique virtual routing table.
+

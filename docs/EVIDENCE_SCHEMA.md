@@ -64,3 +64,4 @@ evidence/INC-2026-9842/
 2. **Timestamps:** All timestamps MUST use UTC in ISO 8601 extended format with millisecond precision (`YYYY-MM-DDTHH:MM:SS.sssZ`).
 3. **No Synthetic Hallucinations:** Telemetry files must not contain fictional data fields. If an event source was inactive, the file must honestly reflect missing telemetry rather than substituting fake entries.
 4. **Shared Contract:** The same incident package is loaded by both Module 1 and Module 2, guaranteeing identical evidence across the entire exercise.
+

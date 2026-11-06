@@ -38,3 +38,4 @@ python -m uvicorn module2.server:app --host 0.0.0.0 --port 8000
 Open your browser to:
 `http://localhost:8000`
 Trainees interact with the dark SOC investigation console, submit checkpoints, track their score in real time, and execute safe containment playbooks.
+

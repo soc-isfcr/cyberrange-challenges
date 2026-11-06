@@ -229,3 +229,4 @@ class EvidenceLoader:
         if p.exists():
             with open(p, 'r', encoding='utf-8') as f:
                 self.indicators = json.load(f)
+

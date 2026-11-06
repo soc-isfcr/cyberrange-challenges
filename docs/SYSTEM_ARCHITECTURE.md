@@ -93,3 +93,4 @@ graph TD
 ### 2.5 Training & Investigation Layer
 - **Module 1:** CyberRangeCZ platform assessment via `training_definition.json` evaluating trainee findings across 10 structured questions.
 - **Module 2:** Standalone or integrated interactive dark SOC web application offering 8 guided lessons, an interactive process tree visualizer, PCAP payload inspector, Wazuh alert correlation cards, MITRE ATT&CK mapping, and a gated change-control remediation console.
+

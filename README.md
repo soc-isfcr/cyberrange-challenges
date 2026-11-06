@@ -1,4 +1,4 @@
-# SOC CyberRange — Ransomware Incident Simulation & Interactive Investigation
+# Cyber-Malware: SOC CyberRange — Ransomware Incident Simulation & Interactive Investigation
 
 [![Preflight Check](https://img.shields.io/badge/Preflight-Verified-brightgreen)](docs/DEPLOYMENT.md)
 [![Tests](https://img.shields.io/badge/Tests-9%2F9%20Passing-brightgreen)](tests/test_end_to_end.py)
@@ -138,3 +138,4 @@ Detailed technical guides are available in the [`docs/`](docs/) directory:
 - [Security Model](docs/SECURITY_MODEL.md)
 - [Testing Guide](docs/TESTING.md)
 - [Troubleshooting & FAQs](docs/TROUBLESHOOTING.md)
+

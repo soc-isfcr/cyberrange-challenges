@@ -59,3 +59,4 @@ To prepare a custom Windows 10 base box for CyberRangeCZ:
    ```
 4. Install Sysmon 64-bit with a standard configuration file.
 5. Sysprep and upload image to OpenStack Glance as `windows-10-x86_64`.
+

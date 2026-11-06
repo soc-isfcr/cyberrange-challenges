@@ -30,3 +30,4 @@ target_hostname: "DESKTOP-WKSTN42"
 victim_user: "j.doe"
 decoy_directory: "C:\\Users\\j.doe\\Documents\\FinanceReports"
 reversible_key: "LAB_REVERSIBLE_SIMULATION_KEY_2026!"
+

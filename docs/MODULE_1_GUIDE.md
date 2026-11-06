@@ -52,3 +52,4 @@ The exercise is fully defined in `training_definition.json`.
 - Configurable maximum score per question: 10 points (100 points total).
 - Instructor-defined hints deduct 2 points per hint revealed.
 - Answer matching supports regex and case-insensitive aliases via `evidence_collector/assessment_evaluator.py`.
+

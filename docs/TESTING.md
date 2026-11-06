@@ -34,3 +34,4 @@ python -m pytest -v tests/test_end_to_end.py
 7. `test_07_interactive_checkpoint_grading_and_hints`: Verifies real-time checkpoint submission, hint penalty deduction (-2 pts), and progress calculation.
 8. `test_08_controlled_remediation_lifecycle`: Verifies action preview, confirmation gating, containment state updates, and post-remediation verification scanning.
 9. `test_09_ui_serving`: Confirms the Single-Page Application HTML/CSS/JS is served successfully on the root endpoint.
+

@@ -92,6 +92,18 @@
       "sha256": "57be044c509672b1f697d9b7188ace0a5bafd78e0ddb17850e90348c6483a721",
       "category": "metadata"
     },
+    "metadata/remediation_state.json": {
+      "path": "metadata/remediation_state.json",
+      "size_bytes": 943,
+      "sha256": "d32446e6a42952b488eff25d88f7d8f9207a3b2e9742e2d88a4be0b7ca4d4ecd",
+      "category": "metadata"
+    },
+    "metadata/trainee_progress.json": {
+      "path": "metadata/trainee_progress.json",
+      "size_bytes": 320,
+      "sha256": "b17c0df1c8c2fc47970b15c512dd9089a2ecad443adc26d07bdc183fb1095818",
+      "category": "metadata"
+    },
     "network/c2_conversations.json": {
       "path": "network/c2_conversations.json",
       "size_bytes": 885,

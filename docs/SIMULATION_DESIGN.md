@@ -63,3 +63,4 @@ graph TD
 ### Stage 6: Incident Packaging & Hash Manifestation
 - Hashes computed using SHA-256.
 - Manifest and checksums locked under `evidence/INC-2026-9842/`.
+

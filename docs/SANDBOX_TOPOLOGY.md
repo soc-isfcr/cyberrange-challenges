@@ -57,3 +57,4 @@
 - Total Memory: 22 GB RAM
 - Total Storage: 140 GB SSD
 - Preflight verification ensures that if OpenStack quotas are exceeded, the offline replay engine can be used without disruption.
+
