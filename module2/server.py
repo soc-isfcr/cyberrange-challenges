@@ -3,6 +3,8 @@
 Module 2 Interactive SOC Training & Investigation Web Server.
 Serves:
 - REST APIs for incident evidence, lessons, checkpoints, and remediation
+- Live Network Diagnostics (Ping, Traceroute, Node Power switching, Server Down simulation)
+- Real-time Diagnostic Packet Injection into PCAP stream
 - Single-Page Interactive SOC Analyst Web Interface
 """
 
@@ -22,6 +24,7 @@ from pydantic import BaseModel
 from .evidence_loader import EvidenceLoader
 from .lessons_data import LESSONS
 from .remediation_engine import RemediationEngine
+from .network_diagnostics import NetworkDiagnosticsEngine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("Module2Server")
@@ -31,11 +34,12 @@ INCIDENT_DIR = BASE_DIR / "evidence" / "INC-2026-9842"
 
 loader = EvidenceLoader(INCIDENT_DIR)
 remediation_engine = RemediationEngine(INCIDENT_DIR)
+diag_engine = NetworkDiagnosticsEngine(loader.pcap_packets)
 
 app = FastAPI(
     title="SOC CyberRange — Interactive Incident Investigation",
     description="Module 2: Ransomware Incident Simulation, SOC Detection & Interactive Response",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 app.add_middleware(
@@ -226,7 +230,7 @@ def get_mitre():
             "id": "T1071.001",
             "name": "Application Layer Protocol: Web Protocols",
             "tactic": "Command and Control",
-            "evidence": "PCAP packets #1-#12: Outbound HTTP POST and GET to Mock C2 (10.10.50.30:8080)",
+            "evidence": "PCAP packets: Outbound HTTP POST and GET to Mock C2 (10.10.50.30:8080)",
             "wazuh_rule": "100204",
             "confidence": "Verified (Full Packet Capture)"
         },
@@ -241,6 +245,48 @@ def get_mitre():
     ]
     return {"techniques": mappings}
 
+# ------------------------------------------------------------------------------
+# Network Diagnostics & Node Control APIs (Ping, Traceroute, Power Toggle)
+# ------------------------------------------------------------------------------
+@app.get("/api/network/nodes")
+def get_network_nodes():
+    return {"nodes": diag_engine.list_nodes()}
+
+class NodeToggleRequest(BaseModel):
+    status: Optional[str] = None
+
+@app.post("/api/network/nodes/{node_name}/toggle")
+def toggle_network_node(node_name: str, req: Optional[NodeToggleRequest] = None):
+    st = req.status if req else None
+    try:
+        res = diag_engine.toggle_node(node_name, st)
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class PingRequest(BaseModel):
+    source: Optional[str] = "analyst"
+    destination: str
+    count: Optional[int] = 4
+
+@app.post("/api/network/ping")
+def ping_network_node(req: PingRequest):
+    res = diag_engine.ping(req.source, req.destination, req.count)
+    return res
+
+class TracerouteRequest(BaseModel):
+    source: Optional[str] = "analyst"
+    destination: str
+    max_hops: Optional[int] = 5
+
+@app.post("/api/network/traceroute")
+def traceroute_network_node(req: TracerouteRequest):
+    res = diag_engine.traceroute(req.source, req.destination, req.max_hops)
+    return res
+
+# ------------------------------------------------------------------------------
+# Remediation APIs
+# ------------------------------------------------------------------------------
 @app.get("/api/remediation/status")
 def get_remediation_status():
     return remediation_engine.state
@@ -261,12 +307,19 @@ class RemediationExecuteReq(BaseModel):
 def execute_remediation(req: RemediationExecuteReq):
     try:
         res = remediation_engine.execute_action(req.action_id, req.confirmed, req.user)
+        # Synchronize network diagnostics state
+        if req.action_id == "ISOLATE_HOST":
+            diag_engine.toggle_node("target", "ISOLATED")
+        elif req.action_id == "DISABLE_MOCK_C2":
+            diag_engine.toggle_node("mockc2", "DOWN")
         return res
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/remediation/reset")
 def reset_remediation():
+    for n in ["router1", "wazuh", "analyst", "mockc2", "target"]:
+        diag_engine.toggle_node(n, "UP")
     return remediation_engine.reset_sandbox()
 
 @app.post("/api/progress/reset")
@@ -391,17 +444,19 @@ def serve_ui():
       background-color: var(--bg-card);
       border-bottom: 1px solid var(--border);
       padding: 0 16px;
-      gap: 8px;
+      gap: 6px;
+      overflow-x: auto;
     }
     .tab-btn {
-      padding: 10px 14px;
+      padding: 10px 12px;
       background: none;
       border: none;
       border-bottom: 2px solid transparent;
       color: var(--text-muted);
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       font-weight: 500;
+      white-space: nowrap;
       transition: all 0.2s;
     }
     .tab-btn:hover { color: var(--text-main); }
@@ -566,8 +621,9 @@ def serve_ui():
       <!-- Injected dynamically via JS -->
     </ul>
 
-    <div class="nav-section-title">Evidence & Response</div>
-    <ul class="nav-list" style="flex: 0 0 auto; max-height: 220px; border-top: 1px solid var(--border);">
+    <div class="nav-section-title">Evidence & Diagnostics</div>
+    <ul class="nav-list" style="flex: 0 0 auto; max-height: 260px; border-top: 1px solid var(--border);">
+      <li class="nav-item" onclick="switchTab('diagnostics')"><span>📡 Network Diagnostics</span></li>
       <li class="nav-item" onclick="switchTab('processes')"><span>🌳 Process Tree</span></li>
       <li class="nav-item" onclick="switchTab('files')"><span>📁 File Forensics</span></li>
       <li class="nav-item" onclick="switchTab('network')"><span>🌐 Network PCAP</span></li>
@@ -594,6 +650,7 @@ def serve_ui():
     <!-- Contextual Tabs Bar -->
     <div class="tab-bar">
       <button class="tab-btn active" id="tab-lesson" onclick="switchTab('lesson')">Guided Lesson</button>
+      <button class="tab-btn" id="tab-diagnostics" onclick="switchTab('diagnostics')">📡 Network Diagnostics</button>
       <button class="tab-btn" id="tab-timeline" onclick="switchTab('timeline')">Incident Timeline</button>
       <button class="tab-btn" id="tab-processes" onclick="switchTab('processes')">Process Tree</button>
       <button class="tab-btn" id="tab-files" onclick="switchTab('files')">File Hashes</button>
@@ -624,7 +681,80 @@ def serve_ui():
       </div>
     </div>
 
-    <!-- VIEW 2: Timeline View -->
+    <!-- VIEW 2: Network Diagnostics, Ping & Trace Route -->
+    <div class="view-container" id="view-diagnostics">
+      <div class="card">
+        <div class="card-title">
+          <span>Lab Network Node Power & Status Control</span>
+          <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">
+            Switch off nodes to test network failure scenarios and live packet drops
+          </span>
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+          Toggling a node to <b>DOWN</b> powers off its virtual network interface. All subsequent pings, traceroutes, and C2 communication targeting that node will report server failure and inject ICMP Unreachable / Timeout packets into the live PCAP capture stream.
+        </p>
+
+        <!-- Dynamic Node Cards Grid -->
+        <div id="nodes-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 10px;">
+          <!-- Injected dynamically via fetchNetworkNodes() -->
+        </div>
+      </div>
+
+      <!-- Ping & Traceroute Terminal Console -->
+      <div class="card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Interactive Diagnostic Console (Ping & Trace Route)</span>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="clearDiagTerminal()">Clear Console</button>
+            <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="switchTab('network')">View Live PCAP Stream</button>
+          </div>
+        </div>
+
+        <!-- Controls Toolbar -->
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; align-items: center; background: var(--bg-panel); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+          <div>
+            <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px; text-transform: uppercase;">Source Host:</label>
+            <select id="diag-source" class="checkpoint-input" style="width: 150px;">
+              <option value="analyst">analyst (10.10.50.20)</option>
+              <option value="target">target (10.10.50.42)</option>
+              <option value="wazuh">wazuh (10.10.50.10)</option>
+              <option value="mockc2">mockc2 (10.10.50.30)</option>
+              <option value="router1">router1 (10.10.50.2)</option>
+            </select>
+          </div>
+
+          <div style="flex: 1; min-width: 240px;">
+            <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px; text-transform: uppercase;">Target IP / Node Name:</label>
+            <div style="display: flex; gap: 6px;">
+              <input type="text" id="diag-dest" class="checkpoint-input" style="flex: 1;" placeholder="e.g. 10.10.50.30 or mockc2" value="10.10.50.30">
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setDiagTarget('10.10.50.30')">mockc2</button>
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setDiagTarget('10.10.50.42')">target</button>
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setDiagTarget('10.10.50.10')">wazuh</button>
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setDiagTarget('10.10.50.2')">router1</button>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; align-self: flex-end;">
+            <button class="btn btn-primary" onclick="runPingCommand()">▶ Ping Node</button>
+            <button class="btn btn-secondary" style="background: var(--accent-blue); color: #fff;" onclick="runTracerouteCommand()">▶ Trace Route</button>
+          </div>
+        </div>
+
+        <!-- Terminal Output Screen -->
+        <div class="payload-viewer" id="diag-terminal-output" style="min-height: 220px; font-size: 12px; line-height: 1.5; color: #a6e22e; background: #000; padding: 14px; border-radius: 6px;">
+// Interactive Network Console ready.
+// Select a source and destination, or switch off a node above, then run Ping or Trace Route.
+// Diagnostic ICMP/packet flows are automatically recorded into the PCAP Inspector.
+        </div>
+
+        <div id="diag-packet-notice" style="display: none; margin-top: 10px; font-size: 12px; color: var(--accent-blue); align-items: center; justify-content: space-between;">
+          <span id="diag-packet-msg"></span>
+          <a href="javascript:void(0)" onclick="switchTab('network')" style="color: var(--accent-green); text-decoration: underline;">Inspect Packets in PCAP Inspector &rarr;</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 3: Timeline View -->
     <div class="view-container" id="view-timeline">
       <div class="card">
         <div class="card-title">Chronological Attack Progression Timeline</div>
@@ -644,7 +774,7 @@ def serve_ui():
       </div>
     </div>
 
-    <!-- VIEW 3: Process Hierarchy View -->
+    <!-- VIEW 4: Process Hierarchy View -->
     <div class="view-container" id="view-processes">
       <div class="card">
         <div class="card-title">Endpoint Process Ancestry Graph (Sysmon Event ID 1)</div>
@@ -652,7 +782,7 @@ def serve_ui():
       </div>
     </div>
 
-    <!-- VIEW 4: File Activity & Hashes -->
+    <!-- VIEW 5: File Activity & Hashes -->
     <div class="view-container" id="view-files">
       <div class="card">
         <div class="card-title">Decoy Directory Cryptographic File Hash Comparison</div>
@@ -671,16 +801,17 @@ def serve_ui():
       </div>
     </div>
 
-    <!-- VIEW 5: PCAP Network Inspector -->
+    <!-- VIEW 6: PCAP Network Inspector -->
     <div class="view-container" id="view-network">
       <div class="card">
         <div class="card-title">
-          <span>Network Packet Capture (network_capture.pcap)</span>
+          <span>Network Packet Capture (network_capture.pcap & Live Injected Flows)</span>
           <div style="display: flex; gap: 8px;">
-            <select id="pcap-proto-filter" class="checkpoint-input" style="width: 120px;" onchange="filterPcap()">
+            <select id="pcap-proto-filter" class="checkpoint-input" style="width: 140px;" onchange="filterPcap()">
               <option value="ALL">All Protocols</option>
               <option value="HTTP">HTTP Only</option>
               <option value="TCP">TCP Only</option>
+              <option value="ICMP">ICMP Only (Ping/Traceroute)</option>
             </select>
           </div>
         </div>
@@ -704,7 +835,7 @@ def serve_ui():
       </div>
     </div>
 
-    <!-- VIEW 6: Wazuh Alerts -->
+    <!-- VIEW 7: Wazuh Alerts -->
     <div class="view-container" id="view-wazuh">
       <div class="card">
         <div class="card-title">Wazuh SIEM Detections (wazuh_alerts.json)</div>
@@ -724,7 +855,7 @@ def serve_ui():
       </div>
     </div>
 
-    <!-- VIEW 7: MITRE ATT&CK Matrix -->
+    <!-- VIEW 8: MITRE ATT&CK Matrix -->
     <div class="view-container" id="view-mitre">
       <div class="card">
         <div class="card-title">Empirical MITRE ATT&CK Mapping</div>
@@ -743,7 +874,7 @@ def serve_ui():
       </div>
     </div>
 
-    <!-- VIEW 8: Remediation Console -->
+    <!-- VIEW 9: Remediation Console -->
     <div class="view-container" id="view-remediation">
       <div class="card">
         <div class="card-title">Controlled Incident Containment Console</div>
@@ -826,6 +957,7 @@ def serve_ui():
       await fetchNetwork();
       await fetchWazuh();
       await fetchMitre();
+      await fetchNetworkNodes();
       await fetchRemediationStatus();
     }
 
@@ -1000,9 +1132,9 @@ def serve_ui():
         <tr onclick="inspectPacket(${p.packet_no})" style="cursor: pointer;">
           <td>${p.packet_no}</td>
           <td>${p.timestamp_epoch.toFixed(4)}</td>
-          <td>${p.src_ip}:${p.src_port}</td>
-          <td>${p.dst_ip}:${p.dst_port}</td>
-          <td><span class="badge badge-info">${p.protocol}</span></td>
+          <td>${p.src_ip}${p.src_port ? ':' + p.src_port : ''}</td>
+          <td>${p.dst_ip}${p.dst_port ? ':' + p.dst_port : ''}</td>
+          <td><span class="badge ${p.protocol === 'ICMP' ? 'badge-amber' : 'badge-info'}">${p.protocol}</span></td>
           <td>${p.length} B</td>
           <td>${p.info}</td>
         </tr>
@@ -1022,7 +1154,7 @@ def serve_ui():
       const pkt = pcapCache.find(p => p.packet_no === num);
       if (!pkt) return;
       const viewer = document.getElementById('packet-payload-viewer');
-      viewer.innerText = `[PACKET #${pkt.packet_no} PAYLOAD - ${pkt.src_ip}:${pkt.src_port} -> ${pkt.dst_ip}:${pkt.dst_port}]\n\n` +
+      viewer.innerText = `[PACKET #${pkt.packet_no} (${pkt.protocol}) - ${pkt.src_ip} -> ${pkt.dst_ip}]\n\n` +
                          (pkt.payload_preview || "(No application layer payload)");
     }
 
@@ -1055,6 +1187,118 @@ def serve_ui():
           <td><span class="badge badge-success">${m.confidence}</span></td>
         </tr>
       `).join('');
+    }
+
+    // -------------------------------------------------------------------------
+    // Network Diagnostics & Node Control JS
+    // -------------------------------------------------------------------------
+    async function fetchNetworkNodes() {
+      const res = await fetch('/api/network/nodes');
+      const data = await res.json();
+      const grid = document.getElementById('nodes-grid');
+      if (!grid) return;
+
+      grid.innerHTML = data.nodes.map(n => `
+        <div class="card" style="margin-bottom: 0; background: var(--bg-panel); border: 1px solid ${n.status === 'UP' ? 'var(--border)' : (n.status === 'DOWN' ? 'var(--accent-red)' : 'var(--accent-amber)')};">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-weight: 700; font-size: 14px;">${n.name}</span>
+            <span class="badge ${n.status === 'UP' ? 'badge-success' : (n.status === 'DOWN' ? 'badge-critical' : 'badge-amber')}">${n.status === 'UP' ? 'ONLINE (UP)' : (n.status === 'DOWN' ? 'SERVER DOWN' : 'ISOLATED')}</span>
+          </div>
+          <div style="font-size: 11px; font-family: var(--mono-font); color: var(--text-muted); margin-bottom: 4px;">
+            IP: <b>${n.ip}</b>
+          </div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+            ${n.role}
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn ${n.status === 'UP' ? 'btn-danger' : 'btn-primary'}" style="padding: 4px 8px; font-size: 11px; flex: 1;" onclick="toggleNodePower('${n.name}')">
+              ${n.status === 'UP' ? '⏻ Switch OFF' : '⏻ Power ON'}
+            </button>
+            ${n.name === 'target' ? `
+              <button class="btn btn-secondary" style="padding: 4px 6px; font-size: 11px;" onclick="toggleNodePower('target', '${n.status === 'ISOLATED' ? 'UP' : 'ISOLATED'}')">
+                ${n.status === 'ISOLATED' ? 'De-isolate' : 'Isolate'}
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function toggleNodePower(nodeName, targetStatus = null) {
+      const url = `/api/network/nodes/${nodeName}/toggle`;
+      const body = targetStatus ? JSON.stringify({ status: targetStatus }) : null;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body
+      });
+      const data = await res.json();
+      
+      const term = document.getElementById('diag-terminal-output');
+      term.innerText += `\\n[HARDWARE EVENT] ${data.message}\\n`;
+      term.scrollTop = term.scrollHeight;
+
+      await fetchNetworkNodes();
+      await fetchNetwork();
+    }
+
+    function setDiagTarget(ip) {
+      document.getElementById('diag-dest').value = ip;
+    }
+
+    function clearDiagTerminal() {
+      document.getElementById('diag-terminal-output').innerText = "// Console cleared. Ready for diagnostic commands.\\n";
+      document.getElementById('diag-packet-notice').style.display = 'none';
+    }
+
+    async function runPingCommand() {
+      const src = document.getElementById('diag-source').value;
+      const dst = document.getElementById('diag-dest').value;
+      const term = document.getElementById('diag-terminal-output');
+
+      term.innerText += `\\n${src}@cyberrange:~$ ping ${dst} -c 4\\n`;
+      term.scrollTop = term.scrollHeight;
+
+      const res = await fetch('/api/network/ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: src, destination: dst, count: 4 })
+      });
+      const data = await res.json();
+      term.innerText += data.output + "\\n";
+      term.scrollTop = term.scrollHeight;
+
+      const notice = document.getElementById('diag-packet-notice');
+      const msg = document.getElementById('diag-packet-msg');
+      notice.style.display = 'flex';
+      msg.innerText = `[✓] Injected 4 ICMP diagnostic packets into live PCAP stream.`;
+
+      await fetchNetwork();
+    }
+
+    async function runTracerouteCommand() {
+      const src = document.getElementById('diag-source').value;
+      const dst = document.getElementById('diag-dest').value;
+      const term = document.getElementById('diag-terminal-output');
+
+      term.innerText += `\\n${src}@cyberrange:~$ traceroute ${dst}\\n`;
+      term.scrollTop = term.scrollHeight;
+
+      const res = await fetch('/api/network/traceroute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: src, destination: dst, max_hops: 5 })
+      });
+      const data = await res.json();
+      term.innerText += data.output + "\\n";
+      term.scrollTop = term.scrollHeight;
+
+      const notice = document.getElementById('diag-packet-notice');
+      const msg = document.getElementById('diag-packet-msg');
+      notice.style.display = 'flex';
+      msg.innerText = `[✓] Injected traceroute probe packets into live PCAP stream.`;
+
+      await fetchNetwork();
     }
 
     async function fetchRemediationStatus() {
@@ -1103,6 +1347,7 @@ def serve_ui():
       closeModal();
       alert(data.message);
       await fetchRemediationStatus();
+      await fetchNetworkNodes();
     }
 
     async function resetSandbox() {
@@ -1110,7 +1355,7 @@ def serve_ui():
         await fetch('/api/remediation/reset', { method: 'POST' });
         await fetch('/api/progress/reset', { method: 'POST' });
         await init();
-        alert("Lab state and progress reset.");
+        alert("Lab state, network nodes, and progress reset.");
       }
     }
 
@@ -1139,4 +1384,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("module2.server:app", host="0.0.0.0", port=port, reload=False)
-

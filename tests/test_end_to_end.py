@@ -204,6 +204,69 @@ def test_09_ui_serving():
     assert "SOC CyberRange — Incident Investigation & Response" in resp.text
     assert "INC-2026-9842" in resp.text
 
+def test_10_network_diagnostics_ping_traceroute_and_node_shutdown():
+    """Verify interactive Ping, Traceroute, Node Power switching, and Server Down alerts."""
+    # 1. Reset nodes
+    client.post("/api/remediation/reset")
+
+    # 2. Get nodes
+    r_nodes = client.get("/api/network/nodes")
+    assert r_nodes.status_code == 200
+    nodes = {n["name"]: n["status"] for n in r_nodes.json()["nodes"]}
+    assert nodes["mockc2"] == "UP"
+    assert nodes["router1"] == "UP"
+
+    # 3. Ping mockc2 while UP
+    r_ping_up = client.post("/api/network/ping", json={"source": "analyst", "destination": "10.10.50.30", "count": 4})
+    assert r_ping_up.status_code == 200
+    p_up = r_ping_up.json()
+    assert p_up["success"] is True
+    assert p_up["server_down"] is False
+    assert p_up["stats"]["loss_pct"] == 0.0
+    assert "Host is ONLINE and responding" in p_up["output"]
+
+    # 4. Traceroute to mockc2 while UP
+    r_trace_up = client.post("/api/network/traceroute", json={"source": "analyst", "destination": "10.10.50.30", "max_hops": 5})
+    assert r_trace_up.status_code == 200
+    t_up = r_trace_up.json()
+    assert t_up["success"] is True
+    assert "Reached mockc2 in 2 hops" in t_up["output"]
+
+    # 5. Switch OFF mockc2 node
+    r_toggle = client.post("/api/network/nodes/mockc2/toggle")
+    assert r_toggle.status_code == 200
+    assert r_toggle.json()["status"] == "DOWN"
+
+    # 6. Ping mockc2 while DOWN -> Server is DOWN!
+    r_ping_down = client.post("/api/network/ping", json={"source": "analyst", "destination": "10.10.50.30", "count": 4})
+    assert r_ping_down.status_code == 200
+    p_down = r_ping_down.json()
+    assert p_down["success"] is False
+    assert p_down["server_down"] is True
+    assert p_down["stats"]["loss_pct"] == 100.0
+    assert "SERVER IS DOWN" in p_down["output"]
+
+    # 7. Traceroute to mockc2 while DOWN -> Destination Host Unreachable [SERVER IS DOWN]
+    r_trace_down = client.post("/api/network/traceroute", json={"source": "analyst", "destination": "10.10.50.30", "max_hops": 5})
+    assert r_trace_down.status_code == 200
+    t_down = r_trace_down.json()
+    assert t_down["success"] is False
+    assert t_down["server_down"] is True
+    assert "SERVER IS DOWN" in t_down["output"]
+
+    # 8. Check that live PCAP contains the injected ICMP diagnostic packets
+    r_net = client.get("/api/evidence/network?protocol=ICMP")
+    assert r_net.status_code == 200
+    icmp_packets = r_net.json()["packets"]
+    assert len(icmp_packets) >= 8, "Should contain injected ICMP Echo and Unreachable packets"
+
+    # 9. Power mockc2 back ON
+    client.post("/api/network/nodes/mockc2/toggle", json={"status": "UP"})
+    r_ping_back = client.post("/api/network/ping", json={"source": "analyst", "destination": "10.10.50.30", "count": 2})
+    assert r_ping_back.status_code == 200
+    assert r_ping_back.json()["success"] is True
+
+
 if __name__ == "__main__":
     pytest.main(["-v", __file__])
 
