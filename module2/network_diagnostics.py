@@ -309,3 +309,4 @@ class NetworkDiagnosticsEngine:
             output_lines.append(f" 2  {dst_name} ({dst_ip})  {d_rtt1} ms  {d_rtt2} ms  {d_rtt3} ms")
             output_lines.append(f"[+] TRACEROUTE COMPLETED: Reached {dst_name} in 2 hops.")
             return {"success": True, "server_down": False, "output": "\n".join(output_lines)}
+

@@ -92,10 +92,16 @@
       "sha256": "57be044c509672b1f697d9b7188ace0a5bafd78e0ddb17850e90348c6483a721",
       "category": "metadata"
     },
+    "metadata/remediation_audit.jsonl": {
+      "path": "metadata/remediation_audit.jsonl",
+      "size_bytes": 6460,
+      "sha256": "524dda37d2ee302ad9cdb0cfb93fcc837818845ab354d716d7e6967c6a4c38bf",
+      "category": "metadata"
+    },
     "metadata/remediation_state.json": {
       "path": "metadata/remediation_state.json",
-      "size_bytes": 943,
-      "sha256": "d32446e6a42952b488eff25d88f7d8f9207a3b2e9742e2d88a4be0b7ca4d4ecd",
+      "size_bytes": 219,
+      "sha256": "c59351fb74c28d83ddfa8e4a93929844c63d0a9cf5de88932942fd025da86d0b",
       "category": "metadata"
     },
     "metadata/trainee_progress.json": {
